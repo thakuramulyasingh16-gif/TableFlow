@@ -1,0 +1,40 @@
+{
+  "name": "tableflow-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TableFlow Node.js + Express + Socket.io + MySQL backend",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed.js",
+    "lint": "eslint src tests",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.2",
+    "cookie-parser": "1.4.7",
+    "cors": "2.8.5",
+    "dotenv": "16.5.0",
+    "express": "5.3.0",
+    "express-rate-limit": "7.5.0",
+    "helmet": "8.1.0",
+    "jsonwebtoken": "9.0.2",
+    "multer": "2.5.0",
+    "mysql2": "3.24.6",
+    "nodemailer": "10.5.0",
+    "pino": "9.6.0",
+    "qrcode": "1.5.4",
+    "razorpay": "2.9.6",
+    "sequelize": "6.37.8",
+    "socket.io": "4.8.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "globals": "16.0.0",
+    "supertest": "7.3.2"
+  }
+}
