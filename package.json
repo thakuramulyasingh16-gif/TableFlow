@@ -1,0 +1,17 @@
+{
+  "name": "tableflow-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TableFlow QR-based restaurant ordering and management system (Phase 1 MVP)",
+  "scripts": {
+    "prepare": "husky",
+    "secret-scan": "node scripts/secret-scan.mjs",
+    "secret-scan:all": "node scripts/secret-scan.mjs --all",
+    "lint": "npm --prefix server run lint && npm --prefix client run lint",
+    "test": "npm --prefix server test",
+    "audit:all": "npm --prefix server audit --audit-level=high && npm --prefix client audit --audit-level=high"
+  },
+  "devDependencies": {
+    "husky": "9.1.7"
+  }
+}
