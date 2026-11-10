@@ -9,6 +9,9 @@ import { globalLimiter } from './middleware/rateLimiter.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/authRoutes.js';
 import guestRoutes from './routes/guestRoutes.js';
+import staffRoutes from './routes/staffRoutes.js';
+import kitchenRoutes from './routes/kitchenRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +92,9 @@ export function createApp({ registerExtraRoutes } = {}) {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/guest', guestRoutes);
+  app.use('/api/staff', staffRoutes);
+  app.use('/api/kitchen', kitchenRoutes);
+  app.use('/api/admin', adminRoutes);
 
   if (registerExtraRoutes?.afterAuth) {
     registerExtraRoutes.afterAuth(app);
