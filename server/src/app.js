@@ -8,6 +8,8 @@ import { getEnv } from './config/env.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import authRoutes from './routes/authRoutes.js';
+import guestRoutes from './routes/guestRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +60,8 @@ export function createApp({ registerExtraRoutes } = {}) {
   app.use(globalLimiter);
   app.use(cookieParser(env.COOKIE_SECRET));
 
+  app.use('/api/webhooks', webhookRoutes);
+
   if (registerExtraRoutes?.beforeJson) {
     registerExtraRoutes.beforeJson(app);
   }
@@ -84,6 +88,7 @@ export function createApp({ registerExtraRoutes } = {}) {
   });
 
   app.use('/api/auth', authRoutes);
+  app.use('/api/guest', guestRoutes);
 
   if (registerExtraRoutes?.afterAuth) {
     registerExtraRoutes.afterAuth(app);
