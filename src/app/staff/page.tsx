@@ -1,13 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { BellRing, Check, CheckCircle2, LogOut, RefreshCw, Utensils } from 'lucide-react';
+import {
+  BellRing,
+  Check,
+  CheckCircle2,
+  CreditCard,
+  LogOut,
+  RefreshCw,
+  Sparkles,
+  Utensils,
+} from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
+import { Badge, Button, Card, Skeleton, Toast } from '@/components/ui';
 
 interface FloorTable {
   id: number;
@@ -15,7 +25,7 @@ interface FloorTable {
   label: string;
   capacity: number;
   zone: string;
-  status: string;
+  status: 'free' | 'ordered' | 'needs_help' | 'bill_requested';
   activeOrderCount: number;
 }
 
@@ -26,7 +36,13 @@ interface StaffOrder {
   totalPaise: number;
   notes?: string | null;
   table: { id: number; tableNumber: string; label: string };
-  items: { id: number; quantity: number; itemNameSnapshot: string; variantNameSnapshot?: string | null; status: string }[];
+  items: {
+    id: number;
+    quantity: number;
+    itemNameSnapshot: string;
+    variantNameSnapshot?: string | null;
+    status: string;
+  }[];
 }
 
 interface WaiterCall {
@@ -35,11 +51,41 @@ interface WaiterCall {
   table: { label: string; zone: string };
 }
 
-const TABLE_COLORS: Record<string, string> = {
-  free: 'bg-emerald-50 border-emerald-300 text-emerald-900',
-  ordered: 'bg-amber-50 border-amber-400 text-amber-950',
-  needs_help: 'bg-rose-100 border-rose-500 text-rose-950 animate-pulse',
-  bill_requested: 'bg-indigo-50 border-indigo-400 text-indigo-950',
+const FLOOR_STATE_META: Record<
+  FloorTable['status'],
+  { label: string; cardCls: string; tone: 'mint' | 'sun' | 'tomato' | 'ink'; icon: typeof Sparkles }
+> = {
+  needs_help: {
+    label: 'Needs help',
+    cardCls: 'border-2 border-tomato bg-surface',
+    tone: 'tomato',
+    icon: BellRing,
+  },
+  bill_requested: {
+    label: 'Bill requested',
+    cardCls: 'border-2 border-leaf bg-mint-bg',
+    tone: 'ink',
+    icon: CreditCard,
+  },
+  ordered: {
+    label: 'Ordered',
+    cardCls: 'border-2 border-sun bg-surface',
+    tone: 'sun',
+    icon: Utensils,
+  },
+  free: {
+    label: 'Free',
+    cardCls: 'border border-mint bg-surface',
+    tone: 'mint',
+    icon: Sparkles,
+  },
+};
+
+const FLOOR_PRIORITY: Record<FloorTable['status'], number> = {
+  needs_help: 0,
+  bill_requested: 1,
+  ordered: 2,
+  free: 3,
 };
 
 export default function StaffPage() {
@@ -51,7 +97,7 @@ export default function StaffPage() {
   const [orders, setOrders] = useState<StaffOrder[]>([]);
   const [calls, setCalls] = useState<WaiterCall[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
 
   const loadAll = useCallback(async () => {
     try {
@@ -63,9 +109,8 @@ export default function StaffPage() {
       setTables(floorRes.tables || []);
       setOrders(ordersRes.orders || []);
       setCalls(callsRes.calls || []);
-      setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load floor data');
+      setToast(err instanceof Error ? err.message : 'Unable to load floor data');
     } finally {
       setLoading(false);
     }
@@ -85,7 +130,7 @@ export default function StaffPage() {
       'staff:updates',
       ['order:created', 'order:updated', 'waiter:call_created', 'waiter:call_resolved', 'table:status_changed', 'payment:captured'],
       () => {
-        loadAll().catch(() => {});
+        void loadAll();
       }
     );
     return () => {
@@ -94,18 +139,29 @@ export default function StaffPage() {
     };
   }, [status, router, loadAll]);
 
+  const sortedTables = useMemo(
+    () => [...tables].sort((a, b) => FLOOR_PRIORITY[a.status] - FLOOR_PRIORITY[b.status]),
+    [tables]
+  );
+
   async function confirmOrder(orderId: number) {
     await apiFetch(`/api/staff/orders/${orderId}/confirm`, { method: 'POST', body: {} });
+    setToast('Order confirmed & sent to kitchen');
+    setTimeout(() => setToast(''), 2500);
     await loadAll();
   }
 
   async function markServed(orderId: number) {
     await apiFetch(`/api/staff/orders/${orderId}/serve`, { method: 'POST', body: {} });
+    setToast('Order marked served');
+    setTimeout(() => setToast(''), 2500);
     await loadAll();
   }
 
   async function resolveCall(callId: number) {
     await apiFetch(`/api/staff/waiter-calls/${callId}/resolve`, { method: 'POST', body: {} });
+    setToast('Waiter call resolved');
+    setTimeout(() => setToast(''), 2500);
     await loadAll();
   }
 
@@ -115,154 +171,187 @@ export default function StaffPage() {
   }
 
   if (status === 'loading') {
-    return <div className="min-h-screen flex items-center justify-center text-stone-600">Checking session...</div>;
+    return (
+      <div className="min-h-screen bg-cream p-5 max-w-7xl mx-auto space-y-5">
+        <Skeleton className="h-24 w-full rounded-[28px]" />
+        <Skeleton className="h-64 w-full rounded-[20px]" />
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-stone-100">
-      <header className="bg-white border-b border-stone-200 px-6 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Utensils className="w-5 h-5 text-amber-600" />
-          <div>
-            <h1 className="font-bold text-stone-900">Staff Floor &amp; Service</h1>
-            <p className="text-xs text-stone-500">
-              {user?.name} ({user?.role})
-            </p>
+    <div className="min-h-screen bg-cream">
+      <Toast message={toast} />
+
+      <header className="bg-signature-gradient rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-[14px] bg-leaf text-surface flex items-center justify-center">
+              <Utensils className="w-6 h-6" aria-hidden="true" />
+            </div>
+            <div>
+              <h1 className="text-[26px] font-extrabold text-ink leading-tight">Staff Floor &amp; Service</h1>
+              <p className="text-[12px] font-bold text-leaf">
+                {user?.name} ({user?.role})
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {(user?.role === 'owner' || user?.role === 'manager') && (
-            <>
-              <Link href="/kitchen" className="px-3 py-1.5 rounded-lg bg-stone-100 text-xs font-semibold">
-                Kitchen
-              </Link>
-              <Link href="/admin" className="px-3 py-1.5 rounded-lg bg-stone-100 text-xs font-semibold">
-                Admin
-              </Link>
-            </>
-          )}
-          <button onClick={() => loadAll()} className="p-2 rounded-lg bg-stone-100 hover:bg-stone-200" title="Refresh">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Sign Out
-          </button>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {(user?.role === 'owner' || user?.role === 'manager') && (
+              <>
+                <Link
+                  href="/kitchen"
+                  className="min-h-[44px] px-4 rounded-[14px] bg-surface text-ink font-bold text-[13px] inline-flex items-center shadow-sm"
+                >
+                  Kitchen
+                </Link>
+                <Link
+                  href="/admin"
+                  className="min-h-[44px] px-4 rounded-[14px] bg-surface text-ink font-bold text-[13px] inline-flex items-center shadow-sm"
+                >
+                  Admin
+                </Link>
+              </>
+            )}
+            <button
+              type="button"
+              aria-label="Refresh floor"
+              onClick={() => void loadAll()}
+              className="min-w-[44px] min-h-[44px] rounded-[14px] bg-surface text-ink inline-flex items-center justify-center shadow-sm cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <Button variant="leaf" onClick={() => signOut({ callbackUrl: '/login' })}>
+              <LogOut className="w-4 h-4" aria-hidden="true" /> Sign Out
+            </Button>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6 space-y-6">
-        {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>}
-
+      <main className="max-w-7xl mx-auto px-5 sm:px-8 py-6 space-y-6">
+        {/* Waiter Call Alerts */}
         {calls.length > 0 && (
-          <section className="bg-rose-50 border border-rose-200 rounded-2xl p-4 space-y-2.5">
-            <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
-              <BellRing className="w-4 h-4" /> Active Waiter Calls ({calls.length})
+          <section aria-live="polite" className="bg-surface border-2 border-tomato rounded-[20px] p-4 shadow-card space-y-3">
+            <div className="flex items-center gap-2 text-tomato font-extrabold text-[16px]">
+              <BellRing className="w-5 h-5" aria-hidden="true" /> Active Waiter Calls ({calls.length})
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {calls.map((c) => (
-                <div key={c.id} className="bg-white rounded-xl p-3 border border-rose-200 flex items-center justify-between">
+                <div key={c.id} className="bg-cream rounded-[16px] p-3.5 border border-tomato/30 flex items-center justify-between gap-3">
                   <div>
-                    <div className="font-bold text-stone-900 text-sm">
+                    <div className="font-extrabold text-ink text-[15px]">
                       {c.table?.label} ({c.table?.zone})
                     </div>
-                    <div className="text-xs text-stone-600">{c.reason}</div>
+                    <div className="text-[12px] text-muted">{c.reason}</div>
                   </div>
-                  <button
-                    onClick={() => resolveCall(c.id)}
-                    className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700"
-                  >
+                  <Button variant="tomato" onClick={() => void resolveCall(c.id)}>
                     Resolve
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           </section>
         )}
 
+        {/* Live Floor Map */}
         <section className="space-y-3">
-          <h2 className="font-bold text-stone-900">Live Floor Map</h2>
+          <h2 className="text-[20px] font-extrabold text-ink">Live Floor Map</h2>
           {loading ? (
-            <div className="text-sm text-stone-500">Loading floor...</div>
-          ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-              {tables.map((t) => (
-                <div key={t.id} className={`rounded-2xl border-2 p-4 shadow-sm ${TABLE_COLORS[t.status] || TABLE_COLORS.free}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-base">{t.tableNumber}</span>
-                    <span className="text-[11px] uppercase font-bold tracking-wide">{t.status.replace('_', ' ')}</span>
-                  </div>
-                  <div className="text-xs opacity-80 mt-0.5">
-                    {t.zone} • {t.capacity} seats
-                  </div>
-                  <div className="text-xs font-medium mt-2">Active orders: {t.activeOrderCount}</div>
-                  {t.status !== 'free' && t.activeOrderCount === 0 && (
-                    <button
-                      onClick={() => resetTableFree(t.id)}
-                      className="mt-2 w-full py-1 rounded-lg bg-white/80 text-[11px] font-semibold border border-stone-300"
-                    >
-                      Mark Free
-                    </button>
-                  )}
-                </div>
-              ))}
+              <Skeleton className="h-32 rounded-[20px]" />
+              <Skeleton className="h-32 rounded-[20px]" />
+              <Skeleton className="h-32 rounded-[20px]" />
+              <Skeleton className="h-32 rounded-[20px]" />
+              <Skeleton className="h-32 rounded-[20px]" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
+              {sortedTables.map((t) => {
+                const meta = FLOOR_STATE_META[t.status] || FLOOR_STATE_META.free;
+                const Icon = meta.icon;
+                return (
+                  <Card
+                    key={t.id}
+                    className={`p-4 flex flex-col justify-between gap-2 ${meta.cardCls} ${
+                      t.status === 'needs_help' ? 'animate-pulse' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[18px] font-extrabold text-ink">{t.tableNumber}</span>
+                      <Badge tone={meta.tone}>
+                        <Icon className="w-3 h-3" aria-hidden="true" />
+                        {meta.label}
+                      </Badge>
+                    </div>
+                    <div className="text-[12px] text-muted">
+                      {t.zone} · {t.capacity} seats
+                    </div>
+                    <div className="text-[13px] font-bold text-ink">
+                      Active orders: {t.activeOrderCount}
+                    </div>
+                    {t.status !== 'free' && t.activeOrderCount === 0 && (
+                      <Button variant="mint" fullWidth onClick={() => void resetTableFree(t.id)}>
+                        Mark Free
+                      </Button>
+                    )}
+                  </Card>
+                );
+              })}
             </div>
           )}
         </section>
 
+        {/* Incoming & Active Orders */}
         <section className="space-y-3">
-          <h2 className="font-bold text-stone-900">Orders Queue ({orders.length})</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {orders.map((ord) => (
-              <div key={ord.id} className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm flex flex-col justify-between gap-3">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-stone-900">{ord.table?.label}</span>
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold capitalize">
-                      {ord.status}
-                    </span>
+          <h2 className="text-[20px] font-extrabold text-ink">Orders Queue ({orders.length})</h2>
+          {orders.length === 0 ? (
+            <Card className="p-6 text-center text-muted">No open table orders right now.</Card>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {orders.map((ord) => (
+                <Card key={ord.id} className="p-4 flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-extrabold text-[16px] text-ink">{ord.table?.label}</span>
+                      <Badge tone={ord.status === 'ready' ? 'mint' : 'sun'}>{ord.status}</Badge>
+                    </div>
+                    <div className="text-[12px] text-muted mt-0.5">
+                      {ord.orderNumber} · {formatInr(ord.totalPaise)}
+                    </div>
+                    <ul className="mt-3 space-y-1.5 text-[14px] border-t border-mint pt-2.5">
+                      {ord.items.map((it) => (
+                        <li key={it.id} className="flex justify-between gap-2">
+                          <span className="font-medium text-ink">
+                            {it.quantity}× {it.itemNameSnapshot}
+                            {it.variantNameSnapshot ? ` (${it.variantNameSnapshot})` : ''}
+                          </span>
+                          <span className="text-[12px] font-bold text-muted capitalize">{it.status}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {ord.notes && (
+                      <div className="mt-2.5 text-[12px] font-bold bg-due-soon text-due-soon-ink p-2.5 rounded-[12px]">
+                        Note: {ord.notes}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-xs text-stone-500 mt-0.5">
-                    {ord.orderNumber} • {formatInr(ord.totalPaise)}
-                  </div>
-                  <ul className="mt-3 space-y-1 text-sm border-t border-stone-100 pt-2">
-                    {ord.items.map((it) => (
-                      <li key={it.id} className="flex justify-between">
-                        <span>
-                          {it.quantity}× {it.itemNameSnapshot}
-                          {it.variantNameSnapshot ? ` (${it.variantNameSnapshot})` : ''}
-                        </span>
-                        <span className="text-xs text-stone-500 capitalize">{it.status}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {ord.notes && (
-                    <div className="mt-2 text-xs bg-amber-50 text-amber-900 p-2 rounded-lg">Note: {ord.notes}</div>
+
+                  {ord.status === 'received' && (
+                    <Button variant="leaf" fullWidth onClick={() => void confirmOrder(ord.id)}>
+                      <Check className="w-4 h-4" aria-hidden="true" /> Confirm &amp; Send to Kitchen
+                    </Button>
                   )}
-                </div>
 
-                {ord.status === 'received' && (
-                  <button
-                    onClick={() => confirmOrder(ord.id)}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 inline-flex items-center justify-center gap-1.5"
-                  >
-                    <Check className="w-4 h-4" /> Confirm &amp; Send to Kitchen
-                  </button>
-                )}
-
-                {ord.status === 'ready' && (
-                  <button
-                    onClick={() => markServed(ord.id)}
-                    className="w-full py-2.5 rounded-xl bg-stone-900 text-white text-xs font-bold hover:bg-stone-800 inline-flex items-center justify-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Mark Served
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+                  {ord.status === 'ready' && (
+                    <Button variant="sun" fullWidth onClick={() => void markServed(ord.id)}>
+                      <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Mark Served
+                    </Button>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
         </section>
       </main>
     </div>

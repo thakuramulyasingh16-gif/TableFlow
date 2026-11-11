@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { signIn, getSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Lock, UtensilsCrossed } from 'lucide-react';
+import { Button, Card } from '@/components/ui';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,59 +43,69 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-stone-200 p-7">
-        <div className="flex items-center gap-2.5 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center">
-            <UtensilsCrossed className="w-5 h-5" />
+    <div className="min-h-screen bg-cream flex items-center justify-center p-5">
+      <Card className="w-full max-w-md overflow-hidden">
+        <div className="bg-signature-gradient p-6 flex items-center gap-3">
+          <div className="w-11 h-11 rounded-[14px] bg-leaf text-surface flex items-center justify-center">
+            <UtensilsCrossed className="w-6 h-6" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-stone-900">TableFlow Staff Portal</h1>
-            <p className="text-xs text-stone-500">Role-based access for Waiters, Chefs, Managers &amp; Owners</p>
+            <h1 className="text-[24px] font-extrabold text-ink leading-tight">Staff Sign In</h1>
+            <p className="text-[12px] font-bold text-leaf">Waiter · Chef · Manager · Owner</p>
           </div>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
-            {error}
-          </div>
-        )}
+        <div className="p-6 space-y-4">
+          {error && (
+            <div role="alert" className="p-3 rounded-[12px] bg-tomato/10 border border-tomato text-tomato text-[13px] font-bold">
+              {error}
+            </div>
+          )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Work Email</label>
-            <input
-              type="email"
-              required
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="owner@tableflow.local"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Password</label>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-2.5 px-4 rounded-xl bg-stone-900 text-white font-semibold hover:bg-stone-800 disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <Lock className="w-4 h-4" />
-            {submitting ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-      </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="login-email" className="block text-[13px] font-bold text-ink mb-1">
+                Work Email
+              </label>
+              <input
+                id="login-email"
+                type="email"
+                required
+                autoComplete="username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="owner@tableflow.local"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+              />
+            </div>
+            <div>
+              <label htmlFor="login-password" className="block text-[13px] font-bold text-ink mb-1">
+                Password
+              </label>
+              <input
+                id="login-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+              />
+            </div>
+            <Button type="submit" variant="leaf" fullWidth disabled={submitting}>
+              <Lock className="w-4 h-4" aria-hidden="true" />
+              {submitting ? 'Signing in...' : 'Sign In'}
+            </Button>
+          </form>
+
+          <p className="text-center text-[12px] text-muted">
+            <Link href="/" className="underline font-bold text-leaf">
+              Back to TableFlow Home
+            </Link>
+          </p>
+        </div>
+      </Card>
     </div>
   );
 }

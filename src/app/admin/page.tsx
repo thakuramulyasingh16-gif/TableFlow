@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Download, LogOut, Plus, QrCode, RefreshCw, Shield, Users } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
+import { Badge, Button, Card, Chip, Skeleton, Toast } from '@/components/ui';
 
 interface CatalogData {
   categories: { id: number; name: string }[];
@@ -55,7 +56,7 @@ export default function AdminPage() {
   const [tables, setTables] = useState<AdminTable[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [ordersPayments, setOrdersPayments] = useState<OrdersPaymentsData>({ orders: [], payments: [] });
-  const [msg, setMsg] = useState('');
+  const [toast, setToast] = useState('');
 
   const [newItem, setNewItem] = useState({
     name: '',
@@ -74,6 +75,11 @@ export default function AdminPage() {
     password: '',
     role: 'waiter',
   });
+
+  const showToast = useCallback((m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(''), 3500);
+  }, []);
 
   const loadData = useCallback(async () => {
     const [catRes, tblRes, opRes] = await Promise.all([
@@ -106,17 +112,18 @@ export default function AdminPage() {
     }
     if (status === 'authenticated') {
       const timer = setTimeout(() => {
-        loadData().catch((e) => setMsg(e instanceof Error ? e.message : 'Failed to load admin data'));
+        loadData().catch((e) => showToast(e instanceof Error ? e.message : 'Failed to load admin data'));
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [status, router, loadData]);
+  }, [status, router, loadData, showToast]);
 
   async function toggleItemAvailability(item: CatalogData['items'][number]) {
     await apiFetch(`/api/admin/menu-items/${item.id}`, {
       method: 'PATCH',
       body: { isAvailable: !item.isAvailable },
     });
+    showToast(`${item.name} updated`);
     await loadData();
   }
 
@@ -137,16 +144,16 @@ export default function AdminPage() {
         },
       });
       setNewItem((p) => ({ ...p, name: '', priceRupees: '', description: '', imageUrl: '' }));
-      setMsg('Menu item added.');
+      showToast('Menu item added.');
       await loadData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : 'Failed to create item');
+      showToast(err instanceof Error ? err.message : 'Failed to create item');
     }
   }
 
   async function handleRegenerateQr(tableId: number) {
     await apiFetch(`/api/admin/tables/${tableId}/regenerate-qr`, { method: 'POST', body: {} });
-    setMsg('QR token regenerated. Previous QR code has been revoked.');
+    showToast('QR token rotated. Previous QR code revoked.');
     await loadData();
   }
 
@@ -162,10 +169,10 @@ export default function AdminPage() {
     try {
       await apiFetch('/api/admin/staff', { method: 'POST', body: newStaff });
       setNewStaff({ name: '', email: '', password: '', role: 'waiter' });
-      setMsg('Staff account created.');
+      showToast('Staff account created.');
       await loadData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : 'Failed to create staff');
+      showToast(err instanceof Error ? err.message : 'Failed to create staff');
     }
   }
 
@@ -174,43 +181,59 @@ export default function AdminPage() {
       method: 'PATCH',
       body: { isActive: !member.isActive },
     });
+    showToast('Staff status updated.');
     await loadData();
   }
 
   if (status === 'loading') {
-    return <div className="min-h-screen flex items-center justify-center text-stone-600">Loading admin console...</div>;
+    return (
+      <div className="min-h-screen bg-cream p-5 max-w-7xl mx-auto space-y-5">
+        <Skeleton className="h-24 w-full rounded-[28px]" />
+        <Skeleton className="h-72 w-full rounded-[20px]" />
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-stone-100">
-      <header className="bg-white border-b border-stone-200 px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <Shield className="w-5 h-5 text-indigo-600" />
-          <div>
-            <h1 className="font-bold text-stone-900">TableFlow Admin Console</h1>
-            <p className="text-xs text-stone-500">
-              {user?.name} ({user?.role})
-            </p>
+    <div className="min-h-screen bg-cream">
+      <Toast message={toast} />
+
+      <header className="bg-signature-gradient rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-[14px] bg-leaf text-surface flex items-center justify-center">
+              <Shield className="w-6 h-6" aria-hidden="true" />
+            </div>
+            <div>
+              <h1 className="text-[26px] font-extrabold text-ink leading-tight">TableFlow Admin Console</h1>
+              <p className="text-[12px] font-bold text-leaf">
+                {user?.name} ({user?.role})
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/staff" className="px-3 py-1.5 rounded-lg bg-stone-100 text-xs font-semibold">
-            Floor
-          </Link>
-          <Link href="/kitchen" className="px-3 py-1.5 rounded-lg bg-stone-100 text-xs font-semibold">
-            Kitchen
-          </Link>
-          <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-stone-900 text-white text-xs font-semibold"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Sign Out
-          </button>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href="/staff"
+              className="min-h-[44px] px-4 rounded-[14px] bg-surface text-ink font-bold text-[13px] inline-flex items-center shadow-sm"
+            >
+              Floor
+            </Link>
+            <Link
+              href="/kitchen"
+              className="min-h-[44px] px-4 rounded-[14px] bg-surface text-ink font-bold text-[13px] inline-flex items-center shadow-sm"
+            >
+              Kitchen
+            </Link>
+            <Button variant="leaf" onClick={() => signOut({ callbackUrl: '/login' })}>
+              <LogOut className="w-4 h-4" aria-hidden="true" /> Sign Out
+            </Button>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6 space-y-6">
-        <div className="flex gap-2 flex-wrap">
+      <main className="max-w-7xl mx-auto px-5 sm:px-8 py-6 space-y-6">
+        <nav aria-label="Admin sections" className="flex gap-2.5 flex-wrap">
           {(
             [
               { id: 'menu', label: 'Menu & Deals' },
@@ -219,288 +242,330 @@ export default function AdminPage() {
               { id: 'orders', label: 'Orders & Payments' },
             ] as { id: 'menu' | 'tables' | 'staff' | 'orders'; label: string }[]
           ).map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold ${
-                tab === t.id ? 'bg-stone-900 text-white' : 'bg-white border border-stone-200 text-stone-700'
-              }`}
-            >
+            <Chip key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
               {t.label}
-            </button>
+            </Chip>
           ))}
-        </div>
+        </nav>
 
-        {msg && <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-sm">{msg}</div>}
-
+        {/* MENU & DEALS */}
         {tab === 'menu' && (
           <div className="space-y-6">
-            <form onSubmit={handleCreateItem} className="bg-white rounded-2xl border border-stone-200 p-5 grid sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-3 font-bold text-stone-900 flex items-center gap-1.5">
-                <Plus className="w-4 h-4" /> Add Menu Item
-              </div>
-              <input
-                required
-                placeholder="Dish name"
-                value={newItem.name}
-                onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <select
-                value={newItem.categoryId}
-                onChange={(e) => setNewItem((p) => ({ ...p, categoryId: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              >
-                {catalog.categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              <select
-                value={newItem.stationId}
-                onChange={(e) => setNewItem((p) => ({ ...p, stationId: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              >
-                {catalog.stations.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <input
-                required
-                type="number"
-                min="1"
-                placeholder="Price (₹)"
-                value={newItem.priceRupees}
-                onChange={(e) => setNewItem((p) => ({ ...p, priceRupees: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <select
-                value={newItem.spiceLevel}
-                onChange={(e) => setNewItem((p) => ({ ...p, spiceLevel: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              >
-                <option value="none">No Spice</option>
-                <option value="mild">Mild</option>
-                <option value="medium">Medium</option>
-                <option value="hot">Hot</option>
-              </select>
-              <label className="flex items-center gap-2 text-sm px-2">
-                <input
-                  type="checkbox"
-                  checked={newItem.isVeg}
-                  onChange={(e) => setNewItem((p) => ({ ...p, isVeg: e.target.checked }))}
-                />
-                Vegetarian
-              </label>
-              <input
-                placeholder="HTTPS Image URL (optional)"
-                value={newItem.imageUrl}
-                onChange={(e) => setNewItem((p) => ({ ...p, imageUrl: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <input
-                placeholder="Description"
-                value={newItem.description}
-                onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <button type="submit" className="py-2 rounded-xl bg-amber-600 text-white text-sm font-semibold">
-                Save Dish
-              </button>
-            </form>
+            <Card className="p-5">
+              <form onSubmit={handleCreateItem} className="grid sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-3 font-extrabold text-[17px] text-ink flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-leaf" aria-hidden="true" /> Add Menu Item
+                </div>
+                <div>
+                  <label htmlFor="item-name" className="sr-only">Dish name</label>
+                  <input
+                    id="item-name"
+                    required
+                    placeholder="Dish name"
+                    value={newItem.name}
+                    onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="item-cat" className="sr-only">Category</label>
+                  <select
+                    id="item-cat"
+                    value={newItem.categoryId}
+                    onChange={(e) => setNewItem((p) => ({ ...p, categoryId: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  >
+                    {catalog.categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="item-station" className="sr-only">Kitchen station</label>
+                  <select
+                    id="item-station"
+                    value={newItem.stationId}
+                    onChange={(e) => setNewItem((p) => ({ ...p, stationId: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  >
+                    {catalog.stations.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="item-price" className="sr-only">Price in Rupees</label>
+                  <input
+                    id="item-price"
+                    required
+                    type="number"
+                    min="1"
+                    placeholder="Price (₹)"
+                    value={newItem.priceRupees}
+                    onChange={(e) => setNewItem((p) => ({ ...p, priceRupees: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="item-spice" className="sr-only">Spice level</label>
+                  <select
+                    id="item-spice"
+                    value={newItem.spiceLevel}
+                    onChange={(e) => setNewItem((p) => ({ ...p, spiceLevel: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  >
+                    <option value="none">No Spice</option>
+                    <option value="mild">Mild</option>
+                    <option value="medium">Medium</option>
+                    <option value="hot">Hot</option>
+                  </select>
+                </div>
+                <label className="min-h-[44px] flex items-center gap-2 text-[14px] font-bold text-ink px-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newItem.isVeg}
+                    onChange={(e) => setNewItem((p) => ({ ...p, isVeg: e.target.checked }))}
+                    className="w-4 h-4 accent-leaf"
+                  />
+                  Vegetarian
+                </label>
+                <div>
+                  <label htmlFor="item-image" className="sr-only">HTTPS Image URL</label>
+                  <input
+                    id="item-image"
+                    placeholder="HTTPS Image URL (optional)"
+                    value={newItem.imageUrl}
+                    onChange={(e) => setNewItem((p) => ({ ...p, imageUrl: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="item-desc" className="sr-only">Description</label>
+                  <input
+                    id="item-desc"
+                    placeholder="Description"
+                    value={newItem.description}
+                    onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <Button type="submit" variant="sun">
+                  Save Dish
+                </Button>
+              </form>
+            </Card>
 
-            <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-stone-50 border-b border-stone-200 text-xs uppercase text-stone-500">
+            <Card className="overflow-x-auto">
+              <table className="w-full text-[14px] text-left">
+                <thead className="bg-mint-bg border-b border-mint text-[12px] uppercase text-leaf font-extrabold">
                   <tr>
-                    <th className="p-3">Dish</th>
-                    <th className="p-3">Category</th>
-                    <th className="p-3">Station</th>
-                    <th className="p-3">Price</th>
-                    <th className="p-3">Availability</th>
+                    <th className="p-3.5">Dish</th>
+                    <th className="p-3.5">Category</th>
+                    <th className="p-3.5">Station</th>
+                    <th className="p-3.5">Price</th>
+                    <th className="p-3.5">Availability</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100">
+                <tbody className="divide-y divide-mint/60">
                   {catalog.items.map((it) => (
                     <tr key={it.id}>
-                      <td className="p-3 font-semibold text-stone-900">{it.name}</td>
-                      <td className="p-3 text-stone-600">{it.category?.name}</td>
-                      <td className="p-3 text-stone-600">{it.station?.name}</td>
-                      <td className="p-3 font-medium">{formatInr(it.basePricePaise)}</td>
-                      <td className="p-3">
-                        <button
-                          onClick={() => toggleItemAvailability(it)}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            it.isAvailable ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'
-                          }`}
+                      <td className="p-3.5 font-extrabold text-ink">{it.name}</td>
+                      <td className="p-3.5 text-muted">{it.category?.name}</td>
+                      <td className="p-3.5 text-muted">{it.station?.name}</td>
+                      <td className="p-3.5 font-bold text-ink">{formatInr(it.basePricePaise)}</td>
+                      <td className="p-3.5">
+                        <Button
+                          variant={it.isAvailable ? 'mint' : 'outline-tomato'}
+                          onClick={() => void toggleItemAvailability(it)}
                         >
                           {it.isAvailable ? 'In Stock' : 'Out of Stock'}
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Card>
           </div>
         )}
 
+        {/* TABLES & QR CODES */}
         {tab === 'tables' && (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {tables.map((t) => (
-              <div key={t.id} className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm space-y-3">
+              <Card key={t.id} className="p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-bold text-stone-900">{t.label} ({t.tableNumber})</div>
-                    <div className="text-xs text-stone-500">{t.zone} • {t.capacity} seats</div>
+                    <div className="font-extrabold text-[17px] text-ink">
+                      {t.label} ({t.tableNumber})
+                    </div>
+                    <div className="text-[12px] text-muted">
+                      {t.zone} · {t.capacity} seats
+                    </div>
                   </div>
-                  <QrCode className="w-5 h-5 text-amber-600" />
+                  <QrCode className="w-5 h-5 text-leaf" aria-hidden="true" />
                 </div>
 
                 {t.qrDataUrl && (
                   <img
                     src={t.qrDataUrl}
-                    alt={`QR ${t.tableNumber}`}
-                    className="w-40 h-40 mx-auto border border-stone-200 rounded-xl p-1"
+                    alt={`QR code for ${t.tableNumber}`}
+                    className="w-40 h-40 mx-auto border border-mint rounded-[16px] p-1.5 bg-surface"
                   />
                 )}
 
-                <div className="text-[11px] text-stone-500 break-all bg-stone-50 p-2 rounded-lg">
-                  <Link href={`/t/${t.qrToken}`} className="text-amber-700 underline">
+                <div className="text-[12px] break-all bg-mint-bg p-2.5 rounded-[12px]">
+                  <Link href={`/t/${t.qrToken}`} className="text-leaf font-bold underline">
                     /t/{t.qrToken}
                   </Link>
                 </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => downloadQrDataUrl(t)}
-                    className="flex-1 py-2 rounded-xl bg-stone-900 text-white text-xs font-semibold inline-flex items-center justify-center gap-1"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Download PNG
-                  </button>
-                  <button
-                    onClick={() => handleRegenerateQr(t.id)}
-                    className="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold inline-flex items-center gap-1"
-                    title="Revoke old QR & issue new token"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Rotate
-                  </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="leaf" onClick={() => downloadQrDataUrl(t)}>
+                    <Download className="w-4 h-4" aria-hidden="true" /> PNG
+                  </Button>
+                  <Button variant="outline-tomato" onClick={() => void handleRegenerateQr(t.id)}>
+                    <RefreshCw className="w-4 h-4" aria-hidden="true" /> Rotate
+                  </Button>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
 
+        {/* STAFF & ROLES (Owner only) */}
         {tab === 'staff' && user?.role === 'owner' && (
           <div className="space-y-6">
-            <form onSubmit={handleCreateStaff} className="bg-white rounded-2xl border border-stone-200 p-5 grid sm:grid-cols-4 gap-3">
-              <div className="sm:col-span-4 font-bold text-stone-900 flex items-center gap-1.5">
-                <Users className="w-4 h-4" /> Create Staff Account
-              </div>
-              <input
-                required
-                placeholder="Full Name"
-                value={newStaff.name}
-                onChange={(e) => setNewStaff((p) => ({ ...p, name: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <input
-                required
-                type="email"
-                placeholder="Email"
-                value={newStaff.email}
-                onChange={(e) => setNewStaff((p) => ({ ...p, email: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <input
-                required
-                type="password"
-                minLength={10}
-                placeholder="Password (min 10 chars)"
-                value={newStaff.password}
-                onChange={(e) => setNewStaff((p) => ({ ...p, password: e.target.value }))}
-                className="px-3 py-2 rounded-xl border border-stone-200 text-sm"
-              />
-              <div className="flex gap-2">
-                <select
-                  value={newStaff.role}
-                  onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value }))}
-                  className="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-sm"
-                >
-                  <option value="waiter">Waiter</option>
-                  <option value="chef">Chef</option>
-                  <option value="manager">Manager</option>
-                  <option value="owner">Owner</option>
-                </select>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-amber-600 text-white text-sm font-semibold">
-                  Add
-                </button>
-              </div>
-            </form>
+            <Card className="p-5">
+              <form onSubmit={handleCreateStaff} className="grid sm:grid-cols-4 gap-3">
+                <div className="sm:col-span-4 font-extrabold text-[17px] text-ink flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-leaf" aria-hidden="true" /> Create Staff Account
+                </div>
+                <div>
+                  <label htmlFor="staff-name" className="sr-only">Full Name</label>
+                  <input
+                    id="staff-name"
+                    required
+                    placeholder="Full Name"
+                    value={newStaff.name}
+                    onChange={(e) => setNewStaff((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="staff-email" className="sr-only">Work Email</label>
+                  <input
+                    id="staff-email"
+                    required
+                    type="email"
+                    placeholder="Email"
+                    value={newStaff.email}
+                    onChange={(e) => setNewStaff((p) => ({ ...p, email: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="staff-pass" className="sr-only">Password</label>
+                  <input
+                    id="staff-pass"
+                    required
+                    type="password"
+                    minLength={10}
+                    placeholder="Password (min 10 chars)"
+                    value={newStaff.password}
+                    onChange={(e) => setNewStaff((p) => ({ ...p, password: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <label htmlFor="staff-role" className="sr-only">Role</label>
+                  <select
+                    id="staff-role"
+                    value={newStaff.role}
+                    onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value }))}
+                    className="flex-1 min-h-[44px] px-3 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                  >
+                    <option value="waiter">Waiter</option>
+                    <option value="chef">Chef</option>
+                    <option value="manager">Manager</option>
+                    <option value="owner">Owner</option>
+                  </select>
+                  <Button type="submit" variant="sun">
+                    Add
+                  </Button>
+                </div>
+              </form>
+            </Card>
 
-            <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-stone-50 border-b border-stone-200 text-xs uppercase text-stone-500">
+            <Card className="overflow-x-auto">
+              <table className="w-full text-[14px] text-left">
+                <thead className="bg-mint-bg border-b border-mint text-[12px] uppercase text-leaf font-extrabold">
                   <tr>
-                    <th className="p-3">Name</th>
-                    <th className="p-3">Email</th>
-                    <th className="p-3">Role</th>
-                    <th className="p-3">Status</th>
+                    <th className="p-3.5">Name</th>
+                    <th className="p-3.5">Email</th>
+                    <th className="p-3.5">Role</th>
+                    <th className="p-3.5">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-100">
+                <tbody className="divide-y divide-mint/60">
                   {staff.map((m) => (
                     <tr key={m.id}>
-                      <td className="p-3 font-semibold">{m.name}</td>
-                      <td className="p-3 text-stone-600">{m.email}</td>
-                      <td className="p-3 uppercase text-xs font-bold">{m.role?.name}</td>
-                      <td className="p-3">
-                        <button
-                          onClick={() => toggleStaffActive(m)}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            m.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'
-                          }`}
+                      <td className="p-3.5 font-extrabold text-ink">{m.name}</td>
+                      <td className="p-3.5 text-muted">{m.email}</td>
+                      <td className="p-3.5">
+                        <Badge tone="sun">{m.role?.name}</Badge>
+                      </td>
+                      <td className="p-3.5">
+                        <Button
+                          variant={m.isActive ? 'mint' : 'outline-tomato'}
+                          onClick={() => void toggleStaffActive(m)}
                         >
                           {m.isActive ? 'Active' : 'Disabled'}
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Card>
           </div>
         )}
 
+        {/* ORDERS & PAYMENTS */}
         {tab === 'orders' && (
           <div className="grid lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
-              <h2 className="font-bold text-stone-900">Recent Orders</h2>
-              <div className="divide-y divide-stone-100 text-sm">
+            <Card className="p-5 space-y-3">
+              <h2 className="font-extrabold text-[18px] text-ink">Recent Orders</h2>
+              <div className="divide-y divide-mint text-[14px]">
                 {ordersPayments.orders.map((o) => (
-                  <div key={o.id} className="py-2 flex justify-between">
+                  <div key={o.id} className="py-2.5 flex justify-between items-center">
                     <div>
-                      <div className="font-semibold">{o.orderNumber} ({o.table?.tableNumber})</div>
-                      <div className="text-xs text-stone-500 capitalize">Status: {o.status}</div>
+                      <div className="font-extrabold text-ink">
+                        {o.orderNumber} ({o.table?.tableNumber})
+                      </div>
+                      <div className="text-[12px] text-muted capitalize">Status: {o.status}</div>
                     </div>
-                    <div className="font-bold">{formatInr(o.totalPaise)}</div>
+                    <div className="font-extrabold text-ink">{formatInr(o.totalPaise)}</div>
                   </div>
                 ))}
               </div>
-            </div>
-            <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
-              <h2 className="font-bold text-stone-900">Recent Payments</h2>
-              <div className="divide-y divide-stone-100 text-sm">
+            </Card>
+            <Card className="p-5 space-y-3">
+              <h2 className="font-extrabold text-[18px] text-ink">Recent Payments</h2>
+              <div className="divide-y divide-mint text-[14px]">
                 {ordersPayments.payments.map((p) => (
-                  <div key={p.id} className="py-2 flex justify-between">
+                  <div key={p.id} className="py-2.5 flex justify-between items-center">
                     <div>
-                      <div className="font-semibold">{p.razorpayOrderId}</div>
-                      <div className="text-xs text-stone-500 capitalize">{p.status} • {p.method || 'pending'}</div>
+                      <div className="font-extrabold text-ink">{p.razorpayOrderId}</div>
+                      <div className="text-[12px] text-muted capitalize">
+                        {p.status} · {p.method || 'pending'}
+                      </div>
                     </div>
-                    <div className="font-bold">{formatInr(p.amountPaise)}</div>
+                    <div className="font-extrabold text-ink">{formatInr(p.amountPaise)}</div>
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           </div>
         )}
       </main>
