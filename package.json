@@ -1,17 +1,57 @@
 {
-  "name": "tableflow-monorepo",
+  "name": "tableflow",
   "version": "1.0.0",
   "private": true,
-  "description": "TableFlow QR-based restaurant ordering and management system (Phase 1 MVP)",
+  "description": "TableFlow QR-based restaurant ordering and management platform (Next.js + Postgres + Prisma + Vercel)",
   "scripts": {
     "prepare": "husky",
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint src prisma tests",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
     "secret-scan": "node scripts/secret-scan.mjs",
     "secret-scan:all": "node scripts/secret-scan.mjs --all",
-    "lint": "npm --prefix server run lint && npm --prefix client run lint",
-    "test": "npm --prefix server test",
-    "audit:all": "npm --prefix server audit --audit-level=high && npm --prefix client audit --audit-level=high"
+    "audit:high": "npm audit --audit-level=high"
+  },
+  "dependencies": {
+    "@prisma/client": "6.12.0",
+    "@supabase/supabase-js": "2.84.0",
+    "@upstash/ratelimit": "2.0.6",
+    "@upstash/redis": "1.35.6",
+    "bcryptjs": "3.0.2",
+    "lucide-react": "0.511.0",
+    "next": "16.4.6",
+    "next-auth": "5.0.0-beta.32",
+    "qrcode": "1.5.4",
+    "razorpay": "2.9.6",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "resend": "6.38.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "husky": "9.1.7"
+    "@eslint/js": "9.39.4",
+    "@tailwindcss/postcss": "4.1.14",
+    "@types/bcryptjs": "2.4.6",
+    "@types/node": "22.15.3",
+    "@types/qrcode": "1.5.5",
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.4.6",
+    "husky": "9.1.7",
+    "prisma": "6.12.0",
+    "tailwindcss": "4.1.14",
+    "tsx": "4.20.6",
+    "typescript": "5.8.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

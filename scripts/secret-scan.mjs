@@ -7,9 +7,14 @@ const FORBIDDEN_FILENAMES = /(^|\/)\.env($|\.(?!example$))/i;
 const SECRET_PATTERNS = [
   { name: 'Private Key Header', regex: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/ },
   { name: 'Razorpay Live Key', regex: /\brzp_live_[A-Za-z0-9]{10,}\b/ },
+  { name: 'Resend API Key', regex: /\bre_[A-Za-z0-9_]{20,}\b/ },
   { name: 'AWS Access Key', regex: /\bAKIA[0-9A-Z]{16}\b/ },
   { name: 'GitHub Token', regex: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}\b/ },
-  { name: 'Generic High-Confidence Secret Assignment', regex: /(?:JWT_ACCESS_SECRET|JWT_REFRESH_SECRET|RAZORPAY_KEY_SECRET|RAZORPAY_WEBHOOK_SECRET|COOKIE_SECRET)\s*[:=]\s*['"]?(?!replace_with_)[A-Za-z0-9+/=_-]{24,}['"]?/ },
+  {
+    name: 'High-Confidence Secret Assignment',
+    regex:
+      /(?:AUTH_SECRET|GUEST_COOKIE_SECRET|RAZORPAY_KEY_SECRET|RAZORPAY_WEBHOOK_SECRET|UPSTASH_REDIS_REST_TOKEN|SUPABASE_SERVICE_ROLE_KEY|RESEND_API_KEY)\s*[:=]\s*['"]?(?!replace_with_)[A-Za-z0-9+/=_-]{24,}['"]?/,
+  },
 ];
 
 function getStagedFiles() {

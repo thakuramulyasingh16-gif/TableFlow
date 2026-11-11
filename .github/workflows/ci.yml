@@ -19,45 +19,34 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            server/package-lock.json
-            client/package-lock.json
 
-      - name: Install root dependencies
-        run: npm ci || npm install
+      - name: Install dependencies
+        run: npm ci
 
       - name: Secret scan
         run: node scripts/secret-scan.mjs --all
 
-      - name: Install server dependencies
-        working-directory: server
-        run: npm ci
+      - name: Prisma generate
+        run: npx prisma generate
 
-      - name: Lint server
-        working-directory: server
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Lint
         run: npm run lint
 
-      - name: Run server tests
-        working-directory: server
+      - name: Run unit & security tests
         run: npm test
 
-      - name: Audit server dependencies
-        working-directory: server
-        run: npm audit --audit-level=high
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Lint client
-        working-directory: client
-        run: npm run lint
-
-      - name: Build client
-        working-directory: client
+      - name: Production build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
+          AUTH_SECRET: replace_with_ci_auth_secret_32_chars_min
+          GUEST_COOKIE_SECRET: replace_with_ci_guest_secret_32_chars_min
+          CORS_ORIGIN: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
         run: npm run build
 
-      - name: Audit client dependencies
-        working-directory: client
+      - name: Audit dependencies
         run: npm audit --audit-level=high
