@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@config "../../tailwind.config.ts";
 
 :root {
   --tf-cream: #FFFBE6;
@@ -20,6 +19,27 @@
   --tf-gradient-signature: linear-gradient(160deg, #FFE066 0%, #F4F1A0 45%, #CDEFB5 100%);
   --tf-gradient-kitchen: linear-gradient(90deg, #1F6B3A, #3E9A4F);
   --tf-gradient-dish: linear-gradient(135deg, #F4F1A0 0%, #E4F6D2 100%);
+}
+
+@theme inline {
+  --color-cream: var(--tf-cream);
+  --color-sun: var(--tf-sun);
+  --color-sun-soft: var(--tf-sun-soft);
+  --color-butter: var(--tf-butter);
+  --color-mint: var(--tf-mint);
+  --color-mint-bg: var(--tf-mint-bg);
+  --color-leaf: var(--tf-leaf);
+  --color-leaf-mid: var(--tf-leaf-mid);
+  --color-veg-green: var(--tf-veg-green);
+  --color-tomato: var(--tf-tomato);
+  --color-ink: var(--tf-ink);
+  --color-muted: var(--tf-muted);
+  --color-surface: var(--tf-surface);
+  --color-due-soon: var(--tf-due-soon);
+  --color-due-soon-ink: var(--tf-due-soon-ink);
+  --font-sans: var(--font-nunito), sans-serif;
+  --shadow-card: 0 6px 18px rgba(31, 107, 58, 0.10);
+  --shadow-sun-glow: 0 0 0 6px rgba(255, 217, 61, 0.35);
 }
 
 @layer base {
