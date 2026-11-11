@@ -1,1 +1,81 @@
 @import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+:root {
+  --tf-cream: #FFFBE6;
+  --tf-sun: #FFD93D;
+  --tf-sun-soft: #FFE066;
+  --tf-butter: #F4F1A0;
+  --tf-mint: #CDEFB5;
+  --tf-mint-bg: #E4F6D2;
+  --tf-leaf: #1F6B3A;
+  --tf-leaf-mid: #3E9A4F;
+  --tf-veg-green: #1F8A3D;
+  --tf-tomato: #C73A25;
+  --tf-ink: #26331F;
+  --tf-muted: #5C6B52;
+  --tf-surface: #FFFFFF;
+  --tf-due-soon: #FFE9A0;
+  --tf-due-soon-ink: #5A4300;
+  --tf-gradient-signature: linear-gradient(160deg, #FFE066 0%, #F4F1A0 45%, #CDEFB5 100%);
+  --tf-gradient-kitchen: linear-gradient(90deg, #1F6B3A, #3E9A4F);
+  --tf-gradient-dish: linear-gradient(135deg, #F4F1A0 0%, #E4F6D2 100%);
+}
+
+@layer base {
+  body {
+    background-color: var(--tf-cream);
+    color: var(--tf-ink);
+    font-family: var(--font-nunito), sans-serif;
+    font-size: 14px;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--tf-leaf);
+    outline-offset: 2px;
+  }
+}
+
+.bg-signature-gradient {
+  background: var(--tf-gradient-signature);
+}
+
+.bg-kitchen-gradient {
+  background: var(--tf-gradient-kitchen);
+}
+
+.bg-dish-placeholder {
+  background: var(--tf-gradient-dish);
+}
+
+@keyframes tf-shimmer {
+  0% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.65;
+  }
+}
+
+.shimmer-mint {
+  background-color: var(--tf-mint-bg);
+  animation: tf-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
