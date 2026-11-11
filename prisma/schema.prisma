@@ -1,0 +1,424 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum RoleName {
+  owner
+  manager
+  waiter
+  chef
+}
+
+enum TableStatus {
+  free
+  ordered
+  needs_help
+  bill_requested
+}
+
+enum TableSessionStatus {
+  active
+  paid
+  expired
+  closed
+}
+
+enum StationCode {
+  grill
+  fry
+  drinks
+  dessert
+}
+
+enum SpiceLevel {
+  none
+  mild
+  medium
+  hot
+  extra_hot
+}
+
+enum DiscountType {
+  percent
+  flat_paise
+}
+
+enum OrderStatus {
+  received
+  confirmed
+  preparing
+  ready
+  served
+  cancelled
+}
+
+enum OrderItemStatus {
+  queued
+  preparing
+  ready
+  served
+}
+
+enum WaiterCallStatus {
+  pending
+  resolved
+}
+
+enum SplitType {
+  full
+  equal
+  by_item
+}
+
+enum BillSplitStatus {
+  pending
+  paid
+}
+
+enum PaymentStatus {
+  created
+  authorized
+  captured
+  failed
+  refunded
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        RoleName @unique
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  users       User[]
+
+  @@map("roles")
+}
+
+model User {
+  id                  Int          @id @default(autoincrement())
+  name                String       @db.VarChar(120)
+  email               String       @unique @db.VarChar(190)
+  passwordHash        String       @map("password_hash") @db.VarChar(255)
+  roleId              Int          @map("role_id")
+  isActive            Boolean      @default(true) @map("is_active")
+  failedLoginAttempts Int          @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?    @map("locked_until")
+  tokenVersion        Int          @default(1) @map("token_version")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  role            Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  confirmedOrders Order[]      @relation("ConfirmedBy")
+  resolvedCalls   WaiterCall[] @relation("ResolvedBy")
+  auditLogs       AuditLog[]
+
+  @@index([roleId], map: "idx_users_role_id")
+  @@map("users")
+}
+
+model Table {
+  id          Int         @id @default(autoincrement())
+  tableNumber String      @unique @map("table_number") @db.VarChar(20)
+  label       String      @db.VarChar(80)
+  capacity    Int         @default(4)
+  zone        String      @default("Main Hall") @db.VarChar(60)
+  qrToken     String      @unique @map("qr_token") @db.VarChar(96)
+  status      TableStatus @default(free)
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  sessions    TableSession[]
+  orders      Order[]
+  waiterCalls WaiterCall[]
+  reviews     Review[]
+
+  @@index([status], map: "idx_tables_status")
+  @@map("tables")
+}
+
+model TableSession {
+  id               Int                @id @default(autoincrement())
+  tableId          Int                @map("table_id")
+  sessionTokenHash String             @unique @map("session_token_hash") @db.Char(64)
+  status           TableSessionStatus @default(active)
+  guestEmail       String?            @map("guest_email") @db.VarChar(190)
+  lastActivityAt   DateTime           @default(now()) @map("last_activity_at")
+  expiresAt        DateTime           @map("expires_at")
+  closedAt         DateTime?          @map("closed_at")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  table       Table        @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  orders      Order[]
+  waiterCalls WaiterCall[]
+  billSplits  BillSplit[]
+  payments    Payment[]
+  review      Review?
+
+  @@index([tableId, status], map: "idx_table_sessions_table_status")
+  @@index([expiresAt], map: "idx_table_sessions_expires_at")
+  @@map("table_sessions")
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(80)
+  slug        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(255)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items MenuItem[]
+  deals Deal[]
+
+  @@map("categories")
+}
+
+model KitchenStation {
+  id           Int         @id @default(autoincrement())
+  name         String      @db.VarChar(60)
+  code         StationCode @unique
+  displayOrder Int         @default(0) @map("display_order")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  menuItems  MenuItem[]
+  orderItems OrderItem[]
+
+  @@map("kitchen_stations")
+}
+
+model MenuItem {
+  id             Int        @id @default(autoincrement())
+  categoryId     Int        @map("category_id")
+  stationId      Int        @map("station_id")
+  name           String     @unique @db.VarChar(120)
+  description    String?    @db.Text
+  imageUrl       String?    @map("image_url") @db.VarChar(500)
+  basePricePaise Int        @map("base_price_paise")
+  isVeg          Boolean    @default(true) @map("is_veg")
+  spiceLevel     SpiceLevel @default(mild) @map("spice_level")
+  allergens      Json       @default("[]")
+  isAvailable    Boolean    @default(true) @map("is_available")
+  prepTimeMins   Int        @default(15) @map("prep_time_mins")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  category   Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  station    KitchenStation @relation(fields: [stationId], references: [id], onDelete: Restrict)
+  variants   ItemVariant[]
+  orderItems OrderItem[]
+
+  @@index([categoryId, isAvailable], map: "idx_menu_items_cat_avail")
+  @@index([stationId], map: "idx_menu_items_station")
+  @@map("menu_items")
+}
+
+model ItemVariant {
+  id              Int      @id @default(autoincrement())
+  menuItemId      Int      @map("menu_item_id")
+  name            String   @db.VarChar(60)
+  priceDeltaPaise Int      @default(0) @map("price_delta_paise")
+  isDefault       Boolean  @default(false) @map("is_default")
+  isAvailable     Boolean  @default(true) @map("is_available")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  menuItem   MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([menuItemId], map: "idx_item_variants_menu_item")
+  @@map("item_variants")
+}
+
+model Deal {
+  id                   Int          @id @default(autoincrement())
+  title                String       @db.VarChar(120)
+  description          String?      @db.VarChar(255)
+  code                 String?      @unique @db.VarChar(40)
+  discountType         DiscountType @map("discount_type")
+  discountValue        Int          @map("discount_value")
+  minOrderPaise        Int          @default(0) @map("min_order_paise")
+  applicableCategoryId Int?         @map("applicable_category_id")
+  startsAt             DateTime?    @map("starts_at")
+  endsAt               DateTime?    @map("ends_at")
+  isActive             Boolean      @default(true) @map("is_active")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  category Category? @relation(fields: [applicableCategoryId], references: [id], onDelete: SetNull)
+  orders   Order[]
+
+  @@index([isActive], map: "idx_deals_active")
+  @@map("deals")
+}
+
+model Order {
+  id             Int         @id @default(autoincrement())
+  orderNumber    String      @unique @map("order_number") @db.VarChar(32)
+  tableId        Int         @map("table_id")
+  tableSessionId Int         @map("table_session_id")
+  dealId         Int?        @map("deal_id")
+  status         OrderStatus @default(received)
+  confirmedById  Int?        @map("confirmed_by")
+  confirmedAt    DateTime?   @map("confirmed_at")
+  subtotalPaise  Int         @map("subtotal_paise")
+  discountPaise  Int         @default(0) @map("discount_paise")
+  cgstPaise      Int         @default(0) @map("cgst_paise")
+  sgstPaise      Int         @default(0) @map("sgst_paise")
+  tipPaise       Int         @default(0) @map("tip_paise")
+  totalPaise     Int         @map("total_paise")
+  notes          String?     @db.VarChar(500)
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  table        Table        @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  confirmedBy  User?        @relation("ConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  items        OrderItem[]
+
+  @@index([tableSessionId, status], map: "idx_orders_session_status")
+  @@index([tableId, createdAt], map: "idx_orders_table_created")
+  @@index([status, createdAt], map: "idx_orders_status_created")
+  @@map("orders")
+}
+
+model OrderItem {
+  id                  Int             @id @default(autoincrement())
+  orderId             Int             @map("order_id")
+  menuItemId          Int             @map("menu_item_id")
+  variantId           Int?            @map("variant_id")
+  stationId           Int             @map("station_id")
+  itemNameSnapshot    String          @map("item_name_snapshot") @db.VarChar(120)
+  variantNameSnapshot String?         @map("variant_name_snapshot") @db.VarChar(60)
+  unitPricePaise      Int             @map("unit_price_paise")
+  quantity            Int
+  lineTotalPaise      Int             @map("line_total_paise")
+  status              OrderItemStatus @default(queued)
+  specialInstructions String?         @map("special_instructions") @db.VarChar(250)
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  order    Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem       @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  variant  ItemVariant?   @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  station  KitchenStation @relation(fields: [stationId], references: [id], onDelete: Restrict)
+
+  @@index([orderId], map: "idx_order_items_order")
+  @@index([stationId, status], map: "idx_order_items_station_status")
+  @@map("order_items")
+}
+
+model WaiterCall {
+  id             Int              @id @default(autoincrement())
+  tableId        Int              @map("table_id")
+  tableSessionId Int              @map("table_session_id")
+  reason         String           @default("Assistance requested") @db.VarChar(200)
+  status         WaiterCallStatus @default(pending)
+  resolvedById   Int?             @map("resolved_by")
+  resolvedAt     DateTime?        @map("resolved_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  table        Table        @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  resolvedBy   User?        @relation("ResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt], map: "idx_waiter_calls_status")
+  @@index([tableSessionId, createdAt], map: "idx_waiter_calls_session")
+  @@map("waiter_calls")
+}
+
+model BillSplit {
+  id             Int             @id @default(autoincrement())
+  tableSessionId Int             @map("table_session_id")
+  splitType      SplitType       @default(full) @map("split_type")
+  partNumber     Int             @default(1) @map("part_number")
+  totalParts     Int             @default(1) @map("total_parts")
+  subtotalPaise  Int             @map("subtotal_paise")
+  discountPaise  Int             @default(0) @map("discount_paise")
+  cgstPaise      Int             @default(0) @map("cgst_paise")
+  sgstPaise      Int             @default(0) @map("sgst_paise")
+  tipPaise       Int             @default(0) @map("tip_paise")
+  amountPaise    Int             @map("amount_paise")
+  itemIdsJson    Json?           @map("item_ids_json")
+  status         BillSplitStatus @default(pending)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  payments     Payment[]
+
+  @@index([tableSessionId, status], map: "idx_bill_splits_session_status")
+  @@map("bill_splits")
+}
+
+model Payment {
+  id                Int           @id @default(autoincrement())
+  tableSessionId    Int           @map("table_session_id")
+  billSplitId       Int?          @map("bill_split_id")
+  razorpayOrderId   String        @unique @map("razorpay_order_id") @db.VarChar(80)
+  razorpayPaymentId String?       @unique @map("razorpay_payment_id") @db.VarChar(80)
+  amountPaise       Int           @map("amount_paise")
+  tipPaise          Int           @default(0) @map("tip_paise")
+  currency          String        @default("INR") @db.Char(3)
+  method            String?       @db.VarChar(40)
+  status            PaymentStatus @default(created)
+  receiptEmail      String?       @map("receipt_email") @db.VarChar(190)
+  receiptSentAt     DateTime?     @map("receipt_sent_at")
+  webhookEventId    String?       @unique @map("webhook_event_id") @db.VarChar(100)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  billSplit    BillSplit?   @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
+
+  @@index([tableSessionId, status], map: "idx_payments_session_status")
+  @@index([createdAt], map: "idx_payments_created_at")
+  @@map("payments")
+}
+
+model Review {
+  id             Int      @id @default(autoincrement())
+  tableSessionId Int      @unique @map("table_session_id")
+  tableId        Int      @map("table_id")
+  rating         Int
+  comment        String?  @db.VarChar(500)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  table        Table        @relation(fields: [tableId], references: [id], onDelete: Restrict)
+
+  @@index([tableId, rating], map: "idx_reviews_table_rating")
+  @@map("reviews")
+}
+
+model AuditLog {
+  id           BigInt   @id @default(autoincrement())
+  actorUserId  Int?     @map("actor_user_id")
+  actorRole    String?  @map("actor_role") @db.VarChar(40)
+  action       String   @db.VarChar(100)
+  entityType   String   @map("entity_type") @db.VarChar(60)
+  entityId     String?  @map("entity_id") @db.VarChar(64)
+  ipAddress    String?  @map("ip_address") @db.VarChar(64)
+  userAgent    String?  @map("user_agent") @db.VarChar(255)
+  metadataJson Json?    @map("metadata_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt], map: "idx_audit_logs_action_created")
+  @@index([actorUserId], map: "idx_audit_logs_actor")
+  @@map("audit_logs")
+}
