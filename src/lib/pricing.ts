@@ -79,6 +79,12 @@ export function calculateDiscountPaise({
   return Math.min(discount, eligibleSubtotal, subtotalPaise);
 }
 
+export type MenuItemLike = Pick<
+  MenuItem,
+  'id' | 'name' | 'basePricePaise' | 'isAvailable' | 'stationId' | 'categoryId'
+> &
+  Partial<MenuItem>;
+
 export function calculateOrderPricing({
   requestedItems,
   menuItemsMap,
@@ -90,7 +96,7 @@ export function calculateOrderPricing({
   now = new Date(),
 }: {
   requestedItems: RequestedOrderItem[];
-  menuItemsMap: Map<number, MenuItem>;
+  menuItemsMap: Map<number, MenuItemLike>;
   variantsMap: Map<number, ItemVariant>;
   deal?: Deal | null;
   cgstBps?: number;
