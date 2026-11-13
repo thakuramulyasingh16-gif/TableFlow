@@ -89,6 +89,26 @@ enum PaymentStatus {
   refunded
 }
 
+enum StockStatus {
+  IN_STOCK
+  OUT_OF_STOCK
+  ORDERED
+}
+
+enum StockAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum IngredientUnit {
+  kg
+  g
+  l
+  ml
+  pcs
+}
+
 model Role {
   id          Int      @id @default(autoincrement())
   name        RoleName @unique
@@ -116,6 +136,11 @@ model User {
   role            Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
   confirmedOrders Order[]      @relation("ConfirmedBy")
   resolvedCalls   WaiterCall[] @relation("ResolvedBy")
+  purchases       Purchase[]   @relation("PurchasedBy")
+  raisedAlerts    StockAlert[] @relation("RaisedBy")
+  acknowledgedAlerts StockAlert[] @relation("AcknowledgedBy")
+  resolvedStockAlerts StockAlert[] @relation("ResolvedByStaff")
+  stockEvents     StockEvent[]
   auditLogs       AuditLog[]
 
   @@index([roleId], map: "idx_users_role_id")
@@ -198,28 +223,33 @@ model KitchenStation {
 }
 
 model MenuItem {
-  id             Int        @id @default(autoincrement())
-  categoryId     Int        @map("category_id")
-  stationId      Int        @map("station_id")
-  name           String     @unique @db.VarChar(120)
-  description    String?    @db.Text
-  imageUrl       String?    @map("image_url") @db.VarChar(500)
-  basePricePaise Int        @map("base_price_paise")
-  isVeg          Boolean    @default(true) @map("is_veg")
-  spiceLevel     SpiceLevel @default(mild) @map("spice_level")
-  allergens      Json       @default("[]")
-  isAvailable    Boolean    @default(true) @map("is_available")
-  prepTimeMins   Int        @default(15) @map("prep_time_mins")
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
+  id                  Int        @id @default(autoincrement())
+  categoryId          Int        @map("category_id")
+  stationId           Int        @map("station_id")
+  name                String     @unique @db.VarChar(120)
+  description         String?    @db.Text
+  imageUrl            String?    @map("image_url") @db.VarChar(500)
+  basePricePaise      Int        @map("base_price_paise")
+  isVeg               Boolean    @default(true) @map("is_veg")
+  spiceLevel          SpiceLevel @default(mild) @map("spice_level")
+  allergens           Json       @default("[]")
+  isAvailable         Boolean    @default(true) @map("is_available")
+  isAvailableOverride Boolean?   @map("is_available_override")
+  overrideReason      String?    @map("override_reason") @db.VarChar(255)
+  prepTimeMins        Int        @default(15) @map("prep_time_mins")
+  archivedAt          DateTime?  @map("archived_at")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
 
-  category   Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  station    KitchenStation @relation(fields: [stationId], references: [id], onDelete: Restrict)
-  variants   ItemVariant[]
-  orderItems OrderItem[]
+  category    Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  station     KitchenStation @relation(fields: [stationId], references: [id], onDelete: Restrict)
+  variants    ItemVariant[]
+  orderItems  OrderItem[]
+  recipeItems RecipeItem[]
 
   @@index([categoryId, isAvailable], map: "idx_menu_items_cat_avail")
   @@index([stationId], map: "idx_menu_items_station")
+  @@index([archivedAt], map: "idx_menu_items_archived_at")
   @@map("menu_items")
 }
 
@@ -421,5 +451,111 @@ model AuditLog {
   @@index([action, createdAt], map: "idx_audit_logs_action_created")
   @@index([actorUserId], map: "idx_audit_logs_actor")
   @@map("audit_logs")
+}
+
+model Ingredient {
+  id                Int            @id @default(autoincrement())
+  name              String         @unique @db.VarChar(120)
+  unit              IngredientUnit @default(kg)
+  stockStatus       StockStatus    @default(IN_STOCK) @map("stock_status")
+  currentStock      Decimal?       @default(0) @map("current_stock") @db.Decimal(12, 3)
+  lowStockThreshold Decimal?       @default(0) @map("low_stock_threshold") @db.Decimal(12, 3)
+  notes             String?        @db.VarChar(500)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  archivedAt        DateTime?      @map("archived_at")
+
+  recipeItems RecipeItem[]
+  purchases   Purchase[]
+  alerts      StockAlert[]
+  events      StockEvent[]
+
+  @@index([stockStatus], map: "idx_ingredients_stock_status")
+  @@index([archivedAt], map: "idx_ingredients_archived_at")
+  @@map("ingredients")
+}
+
+model RecipeItem {
+  id                 Int            @id @default(autoincrement())
+  menuItemId         Int            @map("menu_item_id")
+  ingredientId       Int            @map("ingredient_id")
+  quantityPerServing Decimal?       @map("quantity_per_serving") @db.Decimal(10, 3)
+  unit               IngredientUnit @default(g)
+  isOptional         Boolean        @default(false) @map("is_optional")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([menuItemId, ingredientId], map: "uniq_recipe_menu_item_ingredient")
+  @@index([menuItemId], map: "idx_recipe_items_menu_item")
+  @@index([ingredientId], map: "idx_recipe_items_ingredient")
+  @@map("recipe_items")
+}
+
+model Purchase {
+  id           Int            @id @default(autoincrement())
+  ingredientId Int            @map("ingredient_id")
+  quantity     Decimal        @db.Decimal(10, 3)
+  unit         IngredientUnit
+  totalCost    Int            @map("total_cost")
+  supplier     String?        @db.VarChar(190)
+  notes        String?        @db.VarChar(500)
+  purchasedById Int           @map("purchased_by")
+  alertId      Int?           @map("alert_id")
+  purchasedAt  DateTime       @default(now()) @map("purchased_at")
+  receivedAt   DateTime?      @map("received_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  ingredient  Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  purchasedBy User        @relation("PurchasedBy", fields: [purchasedById], references: [id], onDelete: Restrict)
+  alert       StockAlert? @relation(fields: [alertId], references: [id], onDelete: SetNull)
+
+  @@index([ingredientId], map: "idx_purchases_ingredient")
+  @@index([purchasedAt], map: "idx_purchases_purchased_at")
+  @@index([alertId], map: "idx_purchases_alert")
+  @@map("purchases")
+}
+
+model StockAlert {
+  id               Int              @id @default(autoincrement())
+  ingredientId     Int              @map("ingredient_id")
+  raisedById       Int              @map("raised_by")
+  status           StockAlertStatus @default(OPEN)
+  affectedDishes   Json             @map("affected_dishes")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  acknowledgedById Int?             @map("acknowledged_by")
+  acknowledgedAt   DateTime?        @map("acknowledged_at")
+  resolvedById     Int?             @map("resolved_by")
+  resolvedAt       DateTime?        @map("resolved_at")
+
+  ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  raisedBy       User       @relation("RaisedBy", fields: [raisedById], references: [id], onDelete: Restrict)
+  acknowledgedBy User?      @relation("AcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedBy     User?      @relation("ResolvedByStaff", fields: [resolvedById], references: [id], onDelete: SetNull)
+  purchases      Purchase[]
+
+  @@index([status, createdAt], map: "idx_stock_alerts_status_created")
+  @@index([ingredientId, status], map: "idx_stock_alerts_ingredient_status")
+  @@map("stock_alerts")
+}
+
+model StockEvent {
+  id           Int         @id @default(autoincrement())
+  ingredientId Int         @map("ingredient_id")
+  changedById  Int?        @map("changed_by")
+  fromStatus   StockStatus @map("from_status")
+  toStatus     StockStatus @map("to_status")
+  reason       String?     @db.VarChar(255)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  changedBy  User?      @relation(fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([ingredientId, createdAt], map: "idx_stock_events_ingredient_created")
+  @@index([changedById], map: "idx_stock_events_changed_by")
+  @@map("stock_events")
 }
 

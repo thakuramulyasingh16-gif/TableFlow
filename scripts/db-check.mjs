@@ -120,6 +120,11 @@ async function runCheck() {
       waiterCallsCount,
       sessionsCount,
       auditLogsCount,
+      ingredientsCount,
+      recipeItemsCount,
+      purchasesCount,
+      stockAlertsCount,
+      stockEventsCount,
     ] = await Promise.all([
       prisma.user.count().catch(() => -1),
       prisma.table.count().catch(() => -1),
@@ -131,6 +136,11 @@ async function runCheck() {
       prisma.waiterCall.count().catch(() => -1),
       prisma.tableSession.count().catch(() => -1),
       prisma.auditLog.count().catch(() => -1),
+      prisma.ingredient.count().catch(() => -1),
+      prisma.recipeItem.count().catch(() => -1),
+      prisma.purchase.count().catch(() => -1),
+      prisma.stockAlert.count().catch(() => -1),
+      prisma.stockEvent.count().catch(() => -1),
     ]);
 
     const formatCount = (name, count) => {
@@ -148,6 +158,11 @@ async function runCheck() {
     console.log(formatCount('waiter_calls', waiterCallsCount));
     console.log(formatCount('table_sessions', sessionsCount));
     console.log(formatCount('audit_logs', auditLogsCount));
+    console.log(formatCount('ingredients', ingredientsCount));
+    console.log(formatCount('recipe_items', recipeItemsCount));
+    console.log(formatCount('purchases', purchasesCount));
+    console.log(formatCount('stock_alerts', stockAlertsCount));
+    console.log(formatCount('stock_events', stockEventsCount));
 
     console.log('======================================================================');
     console.log('Result:      DATABASE IS READY AND HEALTHY');

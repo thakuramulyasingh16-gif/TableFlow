@@ -185,6 +185,22 @@ async function main() {
     {
       category: 'signature-mains',
       station: 'fry',
+      name: 'Dal Tadka (Homestyle Yellow Lentils)',
+      description: 'Yellow lentils tempered with ghee, cumin, crisped garlic, and Kashmiri chilli.',
+      imageUrl: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=600&q=80',
+      basePricePaise: 32000,
+      isVeg: true,
+      spiceLevel: 'medium',
+      allergens: ['Dairy'],
+      prepTimeMins: 12,
+      variants: [
+        { name: 'Regular', priceDeltaPaise: 0, isDefault: true },
+        { name: 'Large', priceDeltaPaise: 11000, isDefault: false },
+      ],
+    },
+    {
+      category: 'signature-mains',
+      station: 'fry',
       name: 'Truffle Mushroom Risotto',
       description: 'Creamy Arborio rice with roasted shiitake, parmesan crisp, and black truffle oil.',
       imageUrl: 'https://images.unsplash.com/photo-1476124369491-e7addf5db371?w=600&q=80',
@@ -367,6 +383,180 @@ async function main() {
   }
 
   const firstTable = await prisma.table.findUnique({ where: { tableNumber: 'T1' } });
+
+  // 8. Demo Ingredients & Inventory
+  const ingredientDefs = [
+    { name: 'Dal (Lentils)', unit: 'kg' as const, notes: 'Premium black urad and toor lentils' },
+    { name: 'Dairy Butter', unit: 'kg' as const, notes: 'Rich artisanal churned white butter' },
+    { name: 'Tomato Puree', unit: 'kg' as const, notes: 'Vine-ripened simmered tomato reduction' },
+    { name: 'Garlic', unit: 'kg' as const, notes: 'Peeled fresh organic garlic cloves' },
+    { name: 'Fresh Cream', unit: 'l' as const, notes: 'Thick dairy cream for finishes' },
+    { name: 'Paneer', unit: 'kg' as const, notes: 'Farm-fresh Malai cottage cheese' },
+    { name: 'Basmati Rice', unit: 'kg' as const, notes: 'Extra long grain aged dehradun basmati' },
+    { name: 'Chicken', unit: 'kg' as const, notes: 'Free-range fresh boneless chicken thighs' },
+    { name: 'Flour (Maida)', unit: 'kg' as const, notes: 'Fine wheat flour for tandoor breads' },
+    { name: 'Lotus Stem', unit: 'kg' as const, notes: 'Crispy nadru stems' },
+    { name: 'Coffee Beans', unit: 'kg' as const, notes: 'Chikmagalur shade-grown arabica' },
+    { name: 'Dark Chocolate', unit: 'kg' as const, notes: '70% Belgian callets' },
+  ];
+
+  const ingredientMap: Record<string, number> = {};
+  for (const ing of ingredientDefs) {
+    const record = await prisma.ingredient.upsert({
+      where: { name: ing.name },
+      update: {},
+      create: {
+        name: ing.name,
+        unit: ing.unit,
+        stockStatus: 'IN_STOCK',
+        notes: ing.notes,
+        currentStock: 50,
+        lowStockThreshold: 10,
+      },
+    });
+    ingredientMap[ing.name] = record.id;
+  }
+
+  // 9. Recipes (Shared Ingredients: Dal TableFlow & Dal Tadka both share "Dal (Lentils)")
+  const dalMakhni = await prisma.menuItem.findUnique({ where: { name: 'Dal TableFlow (24-Hr Black Lentils)' } });
+  const dalTadka = await prisma.menuItem.findUnique({ where: { name: 'Dal Tadka (Homestyle Yellow Lentils)' } });
+  const paneerTikka = await prisma.menuItem.findUnique({ where: { name: 'Smoked Paneer Tikka' } });
+  const butterChicken = await prisma.menuItem.findUnique({ where: { name: 'Velvet Butter Chicken' } });
+  const butterNaan = await prisma.menuItem.findUnique({ where: { name: 'Garlic & Herb Butter Naan' } });
+
+  const recipeConfigs: { menuItemId: number; ingredientName: string; isOptional: boolean; qty: number; unit: 'kg' | 'g' | 'l' | 'ml' | 'pcs' }[] = [];
+
+  if (dalMakhni) {
+    recipeConfigs.push(
+      { menuItemId: dalMakhni.id, ingredientName: 'Dal (Lentils)', isOptional: false, qty: 120, unit: 'g' },
+      { menuItemId: dalMakhni.id, ingredientName: 'Dairy Butter', isOptional: false, qty: 30, unit: 'g' },
+      { menuItemId: dalMakhni.id, ingredientName: 'Tomato Puree', isOptional: false, qty: 50, unit: 'g' },
+      { menuItemId: dalMakhni.id, ingredientName: 'Garlic', isOptional: false, qty: 10, unit: 'g' },
+      { menuItemId: dalMakhni.id, ingredientName: 'Fresh Cream', isOptional: true, qty: 20, unit: 'ml' }
+    );
+  }
+
+  if (dalTadka) {
+    recipeConfigs.push(
+      // SHARED INGREDIENT: "Dal (Lentils)" is shared with Dal TableFlow!
+      { menuItemId: dalTadka.id, ingredientName: 'Dal (Lentils)', isOptional: false, qty: 100, unit: 'g' },
+      { menuItemId: dalTadka.id, ingredientName: 'Dairy Butter', isOptional: false, qty: 20, unit: 'g' },
+      { menuItemId: dalTadka.id, ingredientName: 'Tomato Puree', isOptional: false, qty: 40, unit: 'g' },
+      { menuItemId: dalTadka.id, ingredientName: 'Garlic', isOptional: false, qty: 15, unit: 'g' }
+    );
+  }
+
+  if (paneerTikka) {
+    recipeConfigs.push(
+      { menuItemId: paneerTikka.id, ingredientName: 'Paneer', isOptional: false, qty: 180, unit: 'g' },
+      { menuItemId: paneerTikka.id, ingredientName: 'Dairy Butter', isOptional: false, qty: 15, unit: 'g' }
+    );
+  }
+
+  if (butterChicken) {
+    recipeConfigs.push(
+      { menuItemId: butterChicken.id, ingredientName: 'Chicken', isOptional: false, qty: 220, unit: 'g' },
+      { menuItemId: butterChicken.id, ingredientName: 'Dairy Butter', isOptional: false, qty: 35, unit: 'g' },
+      { menuItemId: butterChicken.id, ingredientName: 'Tomato Puree', isOptional: false, qty: 60, unit: 'g' },
+      { menuItemId: butterChicken.id, ingredientName: 'Fresh Cream', isOptional: false, qty: 30, unit: 'ml' }
+    );
+  }
+
+  if (butterNaan) {
+    recipeConfigs.push(
+      { menuItemId: butterNaan.id, ingredientName: 'Flour (Maida)', isOptional: false, qty: 90, unit: 'g' },
+      { menuItemId: butterNaan.id, ingredientName: 'Dairy Butter', isOptional: false, qty: 20, unit: 'g' },
+      { menuItemId: butterNaan.id, ingredientName: 'Garlic', isOptional: false, qty: 8, unit: 'g' }
+    );
+  }
+
+  for (const rc of recipeConfigs) {
+    const ingId = ingredientMap[rc.ingredientName];
+    if (ingId) {
+      await prisma.recipeItem.upsert({
+        where: {
+          menuItemId_ingredientId: {
+            menuItemId: rc.menuItemId,
+            ingredientId: ingId,
+          },
+        },
+        update: {
+          isOptional: rc.isOptional,
+          quantityPerServing: rc.qty,
+          unit: rc.unit,
+        },
+        create: {
+          menuItemId: rc.menuItemId,
+          ingredientId: ingId,
+          isOptional: rc.isOptional,
+          quantityPerServing: rc.qty,
+          unit: rc.unit,
+        },
+      });
+    }
+  }
+
+  // 10. Demo Purchases for Reports (Recorded by Manager)
+  const managerUser = await prisma.user.findUnique({ where: { email: 'manager@tableflow.local' } });
+  if (managerUser) {
+    const existingPurchases = await prisma.purchase.count();
+    if (existingPurchases === 0) {
+      const demoPurchases = [
+        {
+          ingredientName: 'Dal (Lentils)',
+          quantity: 25,
+          unit: 'kg' as const,
+          totalCost: 325000, // ₹3,250.00
+          supplier: 'Metro Wholesale Cash & Carry',
+          daysAgo: 4,
+        },
+        {
+          ingredientName: 'Dairy Butter',
+          quantity: 12,
+          unit: 'kg' as const,
+          totalCost: 624000, // ₹6,240.00
+          supplier: 'Amul Dairy Distribution',
+          daysAgo: 3,
+        },
+        {
+          ingredientName: 'Paneer',
+          quantity: 10,
+          unit: 'kg' as const,
+          totalCost: 380000, // ₹3,800.00
+          supplier: 'Verka Fresh Depot',
+          daysAgo: 2,
+        },
+        {
+          ingredientName: 'Chicken',
+          quantity: 15,
+          unit: 'kg' as const,
+          totalCost: 450000, // ₹4,500.00
+          supplier: 'Supreme Poultry Farms',
+          daysAgo: 1,
+        },
+      ];
+
+      for (const p of demoPurchases) {
+        const ingId = ingredientMap[p.ingredientName];
+        if (ingId) {
+          const pDate = new Date(Date.now() - p.daysAgo * 86400000);
+          await prisma.purchase.create({
+            data: {
+              ingredientId: ingId,
+              quantity: p.quantity,
+              unit: p.unit,
+              totalCost: p.totalCost,
+              supplier: p.supplier,
+              notes: 'Regular kitchen stock replenishment',
+              purchasedById: managerUser.id,
+              purchasedAt: pDate,
+              receivedAt: pDate,
+            },
+          });
+        }
+      }
+    }
+  }
 
   console.log('\n=== TableFlow Postgres Seed Completed ===');
   if (createdCredentials.length > 0) {
