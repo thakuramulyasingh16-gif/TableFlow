@@ -23,3 +23,4 @@ export const SPICE_BADGE: Record<string, { label: string; cls: string }> = {
   hot: { label: 'Hot', cls: 'bg-red-100 text-red-700' },
   extra_hot: { label: 'Extra Hot', cls: 'bg-rose-200 text-rose-900' },
 };
+

@@ -80,3 +80,4 @@ Save the randomly generated staff credentials printed once by `seed.ts`, and rot
 2. Vercel detects `vercel.json` (`npx prisma generate && npm run build`).
 3. Click **Deploy**.
 4. Verify `https://<your-domain>/api/health` returns `{"status":"ok"}`.
+

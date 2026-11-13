@@ -9,3 +9,4 @@ export async function GET() {
   const csrfToken = setCsrfCookie(res, existing);
   return NextResponse.json({ csrfToken }, { headers: res.headers });
 }
+

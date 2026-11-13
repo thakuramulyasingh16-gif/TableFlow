@@ -36,3 +36,4 @@ export async function requireCsrf(req: NextRequest): Promise<void> {
     throw new AppError(403, 'Invalid or missing CSRF token', 'CSRF_INVALID');
   }
 }
+

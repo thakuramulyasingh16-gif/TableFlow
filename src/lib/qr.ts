@@ -26,3 +26,4 @@ export async function generateTableQrAssets(
   ]);
   return { url, dataUrl, svg };
 }
+

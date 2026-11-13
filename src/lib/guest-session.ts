@@ -76,3 +76,4 @@ export async function requireGuestSession({
 
   return { session, table: session.table };
 }
+

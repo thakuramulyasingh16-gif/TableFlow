@@ -8,3 +8,4 @@ export default async function GuestOrderTrackingPage({
   const { tableToken } = await params;
   return <GuestDiningClient tableToken={tableToken} initialView="orders" />;
 }
+

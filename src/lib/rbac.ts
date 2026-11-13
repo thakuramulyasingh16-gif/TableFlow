@@ -7,3 +7,4 @@ export function checkAllowedRole(
   if (!role || allowedRoles.length === 0) return false;
   return (allowedRoles as string[]).includes(role);
 }
+

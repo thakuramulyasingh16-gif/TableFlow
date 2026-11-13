@@ -21,3 +21,4 @@ export function Chip({ active = false, className = '', type = 'button', children
     </button>
   );
 }
+

@@ -18,3 +18,4 @@ export function applyCorsHeaders(req: NextRequest, res: NextResponse): NextRespo
   }
   return res;
 }
+

@@ -12,3 +12,4 @@ export function Toast({ message }: { message: string }) {
     </div>
   );
 }
+

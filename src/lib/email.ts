@@ -106,3 +106,4 @@ export async function deleteGuestEmailPii(tableSessionId: number): Promise<{ del
   ]);
   return { deleted: true };
 }
+

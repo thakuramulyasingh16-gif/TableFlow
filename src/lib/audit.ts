@@ -40,3 +40,4 @@ export async function recordAuditLog({
     console.error('[AuditLog Error]', err instanceof Error ? err.message : err);
   }
 }
+

@@ -44,3 +44,4 @@ export function VegIndicator({ isVeg }: { isVeg: boolean }) {
     </span>
   );
 }
+

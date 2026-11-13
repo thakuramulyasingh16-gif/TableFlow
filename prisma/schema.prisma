@@ -422,3 +422,4 @@ model AuditLog {
   @@index([actorUserId], map: "idx_audit_logs_actor")
   @@map("audit_logs")
 }
+

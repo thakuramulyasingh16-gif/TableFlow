@@ -4,6 +4,56 @@ TableFlow is a single-project **Next.js (App Router) + TypeScript + Tailwind CSS
 
 ---
 
+## 🚀 Start Here (Quickstart)
+
+### Windows (One Click)
+Double-click `start.bat` in the repository root.
+- Automatically checks Node.js & `.env`
+- Automatically provisions/starts PostgreSQL container if needed
+- Validates database and pending migrations
+- Launches the Next.js dev server and opens your browser to `http://localhost:3000`
+
+### Command Line (Any OS)
+
+```bash
+# 1. Fresh machine setup (creates .env with cryptographically strong secrets, creates DB, migrates & seeds)
+npm run setup
+
+# 2. Start the dev server (runs automated preflight check, verifies DB & outputs direct URLs)
+npm run dev
+```
+
+### Database Diagnostic & Verification Tool
+To inspect your database connection, applied Prisma migrations, and live row counts at any time:
+```bash
+npm run db:check
+```
+
+---
+
+## 🍽 Access URLs & Demo Credentials
+
+| Role / Feature | URL | Demo Credentials |
+| :--- | :--- | :--- |
+| **Guest Menu (Table 1)** | `http://localhost:3000/t/CD2H_c5dMe73GlPoAbrs1RvOpD9Sfdq3h5JTxWDg_zg` | *No login needed (table QR)* |
+| **Kitchen Display (KDS)** | `http://localhost:3000/kitchen` | Chef / Staff |
+| **Live Floor Map** | `http://localhost:3000/staff/floor` | Waiter / Manager |
+| **Waiter Calls Board** | `http://localhost:3000/staff/waiter-calls` | Waiter / Manager |
+| **Admin Management** | `http://localhost:3000/admin` | Owner / Manager |
+| **Staff Sign In** | `http://localhost:3000/login` | See table below |
+| **API Health Status** | `http://localhost:3000/api/health` | Public JSON healthcheck |
+
+### Default Staff Accounts (Seeded)
+
+| Role | Email | Password |
+| :--- | :--- | :--- |
+| **Owner** | `owner@tableflow.local` | `TableFlow@2026!Owner` |
+| **Manager** | `manager@tableflow.local` | `TableFlow@2026!Manager` |
+| **Waiter** | `waiter@tableflow.local` | `TableFlow@2026!Waiter` |
+| **Chef** | `chef@tableflow.local` | `TableFlow@2026!Chef` |
+
+---
+
 ## Features (Phase 1)
 
 - **Guest (`/t/:tableToken`, no login)**:
@@ -19,29 +69,22 @@ TableFlow is a single-project **Next.js (App Router) + TypeScript + Tailwind CSS
 
 ---
 
-## Local Development (Windows)
+## 🛠 Preflight Diagnostics (`scripts/preflight.mjs`)
 
-1. **Install dependencies** (use `npm.cmd` in PowerShell if execution policy blocks `npm.ps1`):
-   ```powershell
-   npm.cmd install
-   ```
-2. **Configure `.env.local`** from [`.env.example`](file:///C:/Amulya's%20Projects/TableFlow/.env.example) and set `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, and `GUEST_COOKIE_SECRET`.
-3. **Run Prisma migrations and seed demo data**:
-   ```powershell
-   npx prisma migrate dev
-   npm.cmd run db:seed
-   ```
-4. **Start the Next.js server**:
-   ```powershell
-   npm.cmd run dev
-   ```
-   Open `http://localhost:3000` (and `/t/<qrToken>` printed by `db:seed`).
+When you run `npm run dev`, TableFlow's automated `predev` preflight script runs first and validates:
+1. **`.env` existence & completeness**: Validates configuration using Zod schema; prints exact missing fields if invalid.
+2. **PostgreSQL connectivity**: Verifies host & port reachability. If Docker container `tableflow-pg` is stopped, it auto-starts it.
+3. **Database existence**: Checks if target database exists; auto-creates it if missing.
+4. **Prisma migrations**: Verifies migration status; auto-deploys pending migrations with `prisma migrate deploy`.
+5. **Port conflict check**: Checks if port 3000 is occupied; reports the occupying process name & PID.
+6. **URL Banner**: Queries the active database for the first active table token and displays the full list of clickable URLs and staff credentials.
 
 ---
 
-## Verification Commands
+## Verification & Quality Commands
 
 ```powershell
+npm.cmd run db:check
 npm.cmd run secret-scan:all
 npm.cmd run typecheck
 npm.cmd run lint

@@ -54,3 +54,4 @@ export function handleApiError(err: unknown): NextResponse {
     { status: 500 }
   );
 }
+

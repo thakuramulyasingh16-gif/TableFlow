@@ -14,3 +14,4 @@ export function Card({ className = '', children, ...rest }: CardProps) {
     </div>
   );
 }
+

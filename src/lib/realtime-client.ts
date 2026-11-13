@@ -35,3 +35,4 @@ export function subscribeRealtime(
     if (cleanupSupabase) cleanupSupabase();
   };
 }
+
