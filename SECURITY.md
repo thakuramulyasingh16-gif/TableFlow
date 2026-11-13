@@ -12,6 +12,9 @@
 | **API Inputs & Headers** | SQLi, XSS, mass assignment, clickjacking | Prisma parameterized queries only; Zod `.strict()` schema validation rejecting unknown fields; HTML tag stripping & escaping; strict `Content-Security-Policy`, `X-Frame-Options: DENY`, `nosniff`, HSTS |
 | **Payments (Razorpay)** | Amount tampering, forged callbacks, replay webhooks | Server-side Razorpay order creation; `crypto.timingSafeEqual` HMAC-SHA256 verification; raw-body webhook verification + unique `webhook_event_id` idempotency |
 | **Secrets, PII & Audit** | Secret leaks, excess PII retention, untracked edits | Fail-fast Zod startup validation (`src/lib/env.ts`); Husky pre-commit secret scanner + CI checks; guest email scrubbed via `DELETE /api/guest/privacy/email`; immutable `audit_logs` |
+| **Inventory & Availability Engine** | Client availability forgery, ghost dish ordering | Server-side authoritative evaluation (`evaluateDishAvailability`); client-submitted availability is ignored; orders with out-of-stock items rejected with HTTP 400; shared ingredient status changes cascade immediately; rate limiting on toggles (`stock_toggle` 30/min); immutable `stock_events` log |
+| **Purchases & Financial Reports** | Money rounding exploits, unauthorized cost inspection | Money stored strictly in integer paise (`total_cost_paise`); floating-point amounts rejected; purchases and reports protected by manager/owner RBAC; Chef cannot view purchase costs or financial margins; purchase edits require mandatory reason logged to audit trail |
+| **Menu Modifications & Bulk Deletes** | Accidental data loss, cascading foreign key wipeouts | Non-destructive soft-delete (`archivedAt`) preserves past order history, guest receipts, and sales reports; bulk delete requires explicit typed confirmation (`"DELETE"`) and executes atomically |
 
 ## Reporting a Vulnerability
 
