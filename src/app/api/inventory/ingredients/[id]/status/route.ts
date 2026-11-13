@@ -143,19 +143,16 @@ export async function POST(
       },
     });
 
-    // 6. Broadcast Realtime Updates to staff & manager rooms
-    await broadcastRealtime({
-      event: 'INVENTORY_STOCK_CHANGED',
-      payload: {
-        ingredientId: ingredient.id,
-        ingredientName: ingredient.name,
-        fromStatus: previousStatus,
-        toStatus: newStatus,
-        affectedDishes: result.affectedDishNames,
-        changedBy: staff.name,
-        role: staff.role,
-        alertCreated: result.alertCreated,
-      },
+    // 6. Broadcast Realtime Updates to staff channel
+    await broadcastRealtime('staff', 'INVENTORY_STOCK_CHANGED', {
+      ingredientId: ingredient.id,
+      ingredientName: ingredient.name,
+      fromStatus: previousStatus,
+      toStatus: newStatus,
+      affectedDishes: result.affectedDishNames,
+      changedBy: staff.name,
+      role: staff.role,
+      alertCreated: result.alertCreated,
     }).catch(() => {});
 
     return NextResponse.json({

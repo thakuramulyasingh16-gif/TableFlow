@@ -200,6 +200,12 @@ export default function KitchenPage() {
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               {soundEnabled ? 'Sound on' : 'Sound off'}
             </button>
+            <Link
+              href="/chef"
+              className="min-h-[44px] px-3.5 rounded-full bg-sun text-ink text-[13px] font-extrabold inline-flex items-center gap-1.5 shadow-sm hover:bg-sun-soft transition"
+            >
+              <ChefHat className="w-4 h-4" /> Stock Control
+            </Link>
             {(user?.role === 'owner' || user?.role === 'manager') && (
               <Link
                 href="/admin"
