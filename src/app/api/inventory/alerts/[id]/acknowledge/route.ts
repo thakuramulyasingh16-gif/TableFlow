@@ -122,13 +122,10 @@ export async function POST(
     });
 
     // 7. Broadcast realtime update
-    await broadcastRealtime({
-      event: 'INVENTORY_ALERT_ACKNOWLEDGED',
-      payload: {
-        alertId: alert.id,
-        ingredientName: alert.ingredient.name,
-        acknowledgedBy: staff.name,
-      },
+    await broadcastRealtime('staff', 'INVENTORY_ALERT_ACKNOWLEDGED', {
+      alertId: alert.id,
+      ingredientName: alert.ingredient.name,
+      acknowledgedBy: staff.name,
     }).catch(() => {});
 
     return NextResponse.json({

@@ -4,10 +4,29 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Download, LogOut, Plus, QrCode, RefreshCw, Shield, Users } from 'lucide-react';
+import {
+  Bell,
+  Download,
+  Layers,
+  LogOut,
+  PackageOpen,
+  PieChart,
+  Plus,
+  QrCode,
+  RefreshCw,
+  Shield,
+  ShoppingCart,
+  Tag,
+  Users,
+} from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
-import { Badge, Button, Card, Chip, Skeleton, Toast } from '@/components/ui';
+import { AlertsBanner } from '@/components/admin/AlertsBanner';
+import { AdminIngredientItem, IngredientsTab } from '@/components/admin/IngredientsTab';
+import { AdminDishItem, MenuInventoryTab } from '@/components/admin/MenuInventoryTab';
+import { PurchasesTab } from '@/components/admin/PurchasesTab';
+import { ReportsTab } from '@/components/admin/ReportsTab';
+import { Badge, Button, Card, Toast } from '@/components/ui';
 
 interface CatalogData {
   categories: { id: number; name: string }[];
@@ -51,8 +70,13 @@ export default function AdminPage() {
   const router = useRouter();
   const user = session?.user as { name?: string; role?: string } | undefined;
 
-  const [tab, setTab] = useState<'menu' | 'tables' | 'staff' | 'orders'>('menu');
+  const [tab, setTab] = useState<
+    'menu' | 'deals' | 'ingredients' | 'alerts' | 'purchases' | 'reports' | 'tables' | 'staff' | 'orders'
+  >('menu');
+
   const [catalog, setCatalog] = useState<CatalogData>({ categories: [], stations: [], items: [], deals: [] });
+  const [dishes, setDishes] = useState<AdminDishItem[]>([]);
+  const [ingredients, setIngredients] = useState<AdminIngredientItem[]>([]);
   const [tables, setTables] = useState<AdminTable[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [ordersPayments, setOrdersPayments] = useState<OrdersPaymentsData>({ orders: [], payments: [] });
@@ -82,28 +106,37 @@ export default function AdminPage() {
   }, []);
 
   const loadData = useCallback(async () => {
-    const [catRes, tblRes, opRes] = await Promise.all([
-      apiFetch<CatalogData>('/api/admin/catalog'),
-      apiFetch<{ tables: AdminTable[] }>('/api/admin/tables'),
-      apiFetch<OrdersPaymentsData>('/api/admin/orders-payments'),
-    ]);
-    setCatalog(catRes);
-    setTables(tblRes.tables || []);
-    setOrdersPayments(opRes);
+    try {
+      const [catRes, tblRes, opRes, menuRes, ingRes] = await Promise.all([
+        apiFetch<CatalogData>('/api/admin/catalog'),
+        apiFetch<{ tables: AdminTable[] }>('/api/admin/tables'),
+        apiFetch<OrdersPaymentsData>('/api/admin/orders-payments'),
+        apiFetch<{ items: AdminDishItem[] }>('/api/inventory/menu?includeArchived=true'),
+        apiFetch<{ ingredients: AdminIngredientItem[] }>('/api/inventory/ingredients'),
+      ]);
 
-    if (catRes.categories.length > 0) {
-      setNewItem((prev) => ({
-        ...prev,
-        categoryId: prev.categoryId || String(catRes.categories[0].id),
-        stationId: prev.stationId || String(catRes.stations[0]?.id || ''),
-      }));
-    }
+      setCatalog(catRes);
+      setTables(tblRes.tables || []);
+      setOrdersPayments(opRes);
+      setDishes(menuRes.items || []);
+      setIngredients(ingRes.ingredients || []);
 
-    if (user?.role === 'owner') {
-      const staffRes = await apiFetch<{ staff: StaffMember[] }>('/api/admin/staff');
-      setStaff(staffRes.staff || []);
+      if (catRes.categories.length > 0) {
+        setNewItem((prev) => ({
+          ...prev,
+          categoryId: prev.categoryId || String(catRes.categories[0].id),
+          stationId: prev.stationId || String(catRes.stations[0]?.id || ''),
+        }));
+      }
+
+      if (user?.role === 'owner') {
+        const staffRes = await apiFetch<{ staff: StaffMember[] }>('/api/admin/staff');
+        setStaff(staffRes.staff || []);
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to load manager data');
     }
-  }, [user?.role]);
+  }, [user, showToast]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -118,22 +151,13 @@ export default function AdminPage() {
     }
   }, [status, router, loadData, showToast]);
 
-  async function toggleItemAvailability(item: CatalogData['items'][number]) {
-    await apiFetch(`/api/admin/menu-items/${item.id}`, {
-      method: 'PATCH',
-      body: { isAvailable: !item.isAvailable },
-    });
-    showToast(`${item.name} updated`);
-    await loadData();
-  }
-
   async function handleCreateItem(e: React.FormEvent) {
     e.preventDefault();
     try {
       await apiFetch('/api/admin/menu-items', {
         method: 'POST',
         body: {
-          name: newItem.name,
+          name: newItem.name.trim(),
           categoryId: Number(newItem.categoryId),
           stationId: Number(newItem.stationId),
           basePricePaise: Math.round(Number(newItem.priceRupees) * 100),
@@ -144,7 +168,7 @@ export default function AdminPage() {
         },
       });
       setNewItem((p) => ({ ...p, name: '', priceRupees: '', description: '', imageUrl: '' }));
-      showToast('Menu item added.');
+      showToast('Menu item added. You can now define its recipe in the table below.');
       await loadData();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to create item');
@@ -158,103 +182,130 @@ export default function AdminPage() {
   }
 
   function downloadQrDataUrl(t: AdminTable) {
-    const a = document.createElement('a');
-    a.href = t.qrDataUrl;
-    a.download = `${t.tableNumber}-QR.png`;
-    a.click();
+    const link = document.createElement('a');
+    link.download = `table-${t.tableNumber}-qr.png`;
+    link.href = t.qrDataUrl;
+    link.click();
   }
 
   async function handleCreateStaff(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await apiFetch('/api/admin/staff', { method: 'POST', body: newStaff });
+      await apiFetch('/api/admin/staff', {
+        method: 'POST',
+        body: newStaff,
+      });
       setNewStaff({ name: '', email: '', password: '', role: 'waiter' });
-      showToast('Staff account created.');
+      showToast('Staff member added.');
       await loadData();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to create staff');
     }
   }
 
-  async function toggleStaffActive(member: StaffMember) {
-    await apiFetch(`/api/admin/staff/${member.id}`, {
+  async function toggleStaffActive(s: StaffMember) {
+    await apiFetch(`/api/admin/staff/${s.id}`, {
       method: 'PATCH',
-      body: { isActive: !member.isActive },
+      body: { isActive: !s.isActive },
     });
-    showToast('Staff status updated.');
+    showToast(`Staff ${s.name} ${!s.isActive ? 'activated' : 'disabled'}`);
     await loadData();
   }
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen bg-cream p-5 max-w-7xl mx-auto space-y-5">
-        <Skeleton className="h-24 w-full rounded-[28px]" />
-        <Skeleton className="h-72 w-full rounded-[20px]" />
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-cream font-sans pb-16">
       <Toast message={toast} />
 
+      {/* Signature Gradient Header */}
       <header className="bg-signature-gradient rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-[14px] bg-leaf text-surface flex items-center justify-center">
+            <div className="w-11 h-11 rounded-[14px] bg-leaf text-surface flex items-center justify-center shadow-sm">
               <Shield className="w-6 h-6" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-[26px] font-extrabold text-ink leading-tight">TableFlow Admin Console</h1>
+              <div className="flex items-center gap-2">
+                <span className="text-[22px] font-extrabold text-ink tracking-tight">Manager & Admin Flow</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-ink text-sun-soft text-[11px] font-extrabold uppercase">
+                  {user?.role || 'Staff'}
+                </span>
+              </div>
               <p className="text-[12px] font-bold text-leaf">
-                {user?.name} ({user?.role})
+                {user?.name || 'Administrator'} • Inventory, Recipes & Financial Control
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link
-              href="/staff"
-              className="min-h-[44px] px-4 rounded-[14px] bg-surface text-ink font-bold text-[13px] inline-flex items-center shadow-sm"
-            >
-              Floor
-            </Link>
+          <div className="flex items-center gap-2.5 flex-wrap">
             <Link
               href="/kitchen"
-              className="min-h-[44px] px-4 rounded-[14px] bg-surface text-ink font-bold text-[13px] inline-flex items-center shadow-sm"
+              className="min-h-[44px] px-4 rounded-[14px] bg-surface/80 hover:bg-surface text-leaf font-bold text-[13px] inline-flex items-center gap-1.5 transition border border-leaf/20"
             >
-              Kitchen
+              Kitchen KDS
             </Link>
-            <Button variant="leaf" onClick={() => signOut({ callbackUrl: '/login' })}>
-              <LogOut className="w-4 h-4" aria-hidden="true" /> Sign Out
+            <Link
+              href="/chef"
+              className="min-h-[44px] px-4 rounded-[14px] bg-surface/80 hover:bg-surface text-leaf font-bold text-[13px] inline-flex items-center gap-1.5 transition border border-leaf/20"
+            >
+              Chef Portal
+            </Link>
+            <Link
+              href="/staff/floor"
+              className="min-h-[44px] px-4 rounded-[14px] bg-surface/80 hover:bg-surface text-leaf font-bold text-[13px] inline-flex items-center gap-1.5 transition border border-leaf/20"
+            >
+              Floor Map
+            </Link>
+            <Button variant="tomato" onClick={() => signOut({ callbackUrl: '/login' })} className="min-h-[44px]">
+              <LogOut className="w-4 h-4 mr-1.5" aria-hidden="true" /> Sign Out
             </Button>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-5 sm:px-8 py-6 space-y-6">
-        <nav aria-label="Admin sections" className="flex gap-2.5 flex-wrap">
-          {(
-            [
-              { id: 'menu', label: 'Menu & Deals' },
-              { id: 'tables', label: 'Tables & QR Codes' },
-              ...(user?.role === 'owner' ? [{ id: 'staff', label: 'Staff & Roles' }] : []),
-              { id: 'orders', label: 'Orders & Payments' },
-            ] as { id: 'menu' | 'tables' | 'staff' | 'orders'; label: string }[]
-          ).map((t) => (
-            <Chip key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
-              {t.label}
-            </Chip>
-          ))}
+        {/* PERSISTENT REAL-TIME ALERTS BANNER FOR ONLINE MANAGERS */}
+        <AlertsBanner onRefreshData={loadData} showToast={showToast} />
+
+        {/* 6 Core Manager Tabs + Operational Tabs */}
+        <nav aria-label="Admin and inventory tabs" className="flex gap-2 flex-wrap pb-1">
+          {[
+            { id: 'menu', label: 'Menu & Recipes', icon: Layers },
+            { id: 'deals', label: 'Deals & Offers', icon: Tag },
+            { id: 'ingredients', label: 'Ingredients', icon: PackageOpen },
+            { id: 'alerts', label: 'Alerts', icon: Bell },
+            { id: 'purchases', label: 'Purchases', icon: ShoppingCart },
+            { id: 'reports', label: 'Financial Reports', icon: PieChart },
+            { id: 'tables', label: 'Tables & QRs', icon: QrCode },
+            ...(user?.role === 'owner' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users }] : []),
+            { id: 'orders', label: 'Orders & Payments', icon: RefreshCw },
+          ].map((t) => {
+            const Icon = t.icon;
+            const isActive = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id as typeof tab)}
+                className={`min-h-[42px] px-4 rounded-full text-[13px] font-extrabold transition flex items-center gap-1.5 cursor-pointer ${
+                  isActive
+                    ? 'bg-sun text-ink shadow-sm'
+                    : 'bg-mint-bg text-leaf hover:bg-mint'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {t.label}
+              </button>
+            );
+          })}
         </nav>
 
-        {/* MENU & DEALS */}
+        {/* 1. MENU TAB (Dishes + Expandable Recipes + Soft Delete & Restore + Availability Overrides) */}
         {tab === 'menu' && (
           <div className="space-y-6">
-            <Card className="p-5">
+            {/* Quick Add Dish Form */}
+            <Card className="p-5 shadow-sm border border-leaf/10">
               <form onSubmit={handleCreateItem} className="grid sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-3 font-extrabold text-[17px] text-ink flex items-center gap-1.5">
-                  <Plus className="w-4 h-4 text-leaf" aria-hidden="true" /> Add Menu Item
+                  <Plus className="w-4 h-4 text-leaf" aria-hidden="true" /> Add New Dish
                 </div>
                 <div>
                   <label htmlFor="item-name" className="sr-only">Dish name</label>
@@ -264,7 +315,7 @@ export default function AdminPage() {
                     placeholder="Dish name"
                     value={newItem.name}
                     onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
                 <div>
@@ -273,7 +324,7 @@ export default function AdminPage() {
                     id="item-cat"
                     value={newItem.categoryId}
                     onChange={(e) => setNewItem((p) => ({ ...p, categoryId: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   >
                     {catalog.categories.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
@@ -286,7 +337,7 @@ export default function AdminPage() {
                     id="item-station"
                     value={newItem.stationId}
                     onChange={(e) => setNewItem((p) => ({ ...p, stationId: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   >
                     {catalog.stations.map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
@@ -303,7 +354,7 @@ export default function AdminPage() {
                     placeholder="Price (₹)"
                     value={newItem.priceRupees}
                     onChange={(e) => setNewItem((p) => ({ ...p, priceRupees: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
                 <div>
@@ -312,7 +363,7 @@ export default function AdminPage() {
                     id="item-spice"
                     value={newItem.spiceLevel}
                     onChange={(e) => setNewItem((p) => ({ ...p, spiceLevel: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   >
                     <option value="none">No Spice</option>
                     <option value="mild">Mild</option>
@@ -329,64 +380,85 @@ export default function AdminPage() {
                   />
                   Vegetarian
                 </label>
-                <div>
-                  <label htmlFor="item-image" className="sr-only">HTTPS Image URL</label>
-                  <input
-                    id="item-image"
-                    placeholder="HTTPS Image URL (optional)"
-                    value={newItem.imageUrl}
-                    onChange={(e) => setNewItem((p) => ({ ...p, imageUrl: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
-                  />
-                </div>
-                <div>
+                <div className="sm:col-span-2">
                   <label htmlFor="item-desc" className="sr-only">Description</label>
                   <input
                     id="item-desc"
-                    placeholder="Description"
+                    placeholder="Description / short taste notes"
                     value={newItem.description}
                     onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
-                <Button type="submit" variant="sun">
-                  Save Dish
+                <Button type="submit" variant="sun" className="min-h-[44px] font-extrabold">
+                  Add Dish
                 </Button>
               </form>
             </Card>
 
-            <Card className="overflow-x-auto">
-              <table className="w-full text-[14px] text-left">
-                <thead className="bg-mint-bg border-b border-mint text-[12px] uppercase text-leaf font-extrabold">
-                  <tr>
-                    <th className="p-3.5">Dish</th>
-                    <th className="p-3.5">Category</th>
-                    <th className="p-3.5">Station</th>
-                    <th className="p-3.5">Price</th>
-                    <th className="p-3.5">Availability</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-mint/60">
-                  {catalog.items.map((it) => (
-                    <tr key={it.id}>
-                      <td className="p-3.5 font-extrabold text-ink">{it.name}</td>
-                      <td className="p-3.5 text-muted">{it.category?.name}</td>
-                      <td className="p-3.5 text-muted">{it.station?.name}</td>
-                      <td className="p-3.5 font-bold text-ink">{formatInr(it.basePricePaise)}</td>
-                      <td className="p-3.5">
-                        <Button
-                          variant={it.isAvailable ? 'mint' : 'outline-tomato'}
-                          onClick={() => void toggleItemAvailability(it)}
-                        >
-                          {it.isAvailable ? 'In Stock' : 'Out of Stock'}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
+            {/* Menu & Recipes Inventory Manager */}
+            <MenuInventoryTab
+              dishes={dishes}
+              categories={catalog.categories}
+              stations={catalog.stations}
+              availableIngredients={ingredients}
+              onRefresh={loadData}
+              showToast={showToast}
+            />
           </div>
+        )}
+
+        {/* 2. DEALS TAB */}
+        {tab === 'deals' && (
+          <Card className="p-6 space-y-4">
+            <h3 className="text-[18px] font-extrabold text-ink">Active Restaurant Deals & Discounts</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {catalog.deals.map((deal) => (
+                <div key={deal.id} className="p-4 rounded-[16px] bg-cream border border-leaf/15 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-[16px] text-ink">{deal.title}</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-sun text-ink text-[12px] font-bold">
+                      {deal.code || 'Auto-applied'}
+                    </span>
+                  </div>
+                  <p className="text-[12px] text-muted">
+                    Status: <span className="text-leaf font-bold">{deal.isActive ? 'Active' : 'Inactive'}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* 3. INGREDIENTS TAB */}
+        {tab === 'ingredients' && (
+          <IngredientsTab
+            ingredients={ingredients}
+            onRefresh={loadData}
+            showToast={showToast}
+          />
+        )}
+
+        {/* 4. ALERTS TAB */}
+        {tab === 'alerts' && (
+          <div className="space-y-4">
+            <p className="text-[13px] text-muted font-bold">
+              Review and act on raw-material alerts raised by the kitchen.
+            </p>
+          </div>
+        )}
+
+        {/* 5. PURCHASES TAB */}
+        {tab === 'purchases' && (
+          <PurchasesTab
+            ingredients={ingredients}
+            showToast={showToast}
+          />
+        )}
+
+        {/* 6. REPORTS TAB (Financial & Material Analytics) */}
+        {tab === 'reports' && (
+          <ReportsTab showToast={showToast} />
         )}
 
         {/* TABLES & QR CODES */}
@@ -422,10 +494,10 @@ export default function AdminPage() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <Button variant="leaf" onClick={() => downloadQrDataUrl(t)}>
-                    <Download className="w-4 h-4" aria-hidden="true" /> PNG
+                    <Download className="w-4 h-4 mr-1.5" aria-hidden="true" /> PNG
                   </Button>
                   <Button variant="outline-tomato" onClick={() => void handleRegenerateQr(t.id)}>
-                    <RefreshCw className="w-4 h-4" aria-hidden="true" /> Rotate
+                    <RefreshCw className="w-4 h-4 mr-1.5" aria-hidden="true" /> Rotate
                   </Button>
                 </div>
               </Card>
@@ -449,7 +521,7 @@ export default function AdminPage() {
                     placeholder="Full Name"
                     value={newStaff.name}
                     onChange={(e) => setNewStaff((p) => ({ ...p, name: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
                 <div>
@@ -461,7 +533,7 @@ export default function AdminPage() {
                     placeholder="Email"
                     value={newStaff.email}
                     onChange={(e) => setNewStaff((p) => ({ ...p, email: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
                 <div>
@@ -474,7 +546,7 @@ export default function AdminPage() {
                     placeholder="Password (min 10 chars)"
                     value={newStaff.password}
                     onChange={(e) => setNewStaff((p) => ({ ...p, password: e.target.value }))}
-                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -483,14 +555,14 @@ export default function AdminPage() {
                     id="staff-role"
                     value={newStaff.role}
                     onChange={(e) => setNewStaff((p) => ({ ...p, role: e.target.value }))}
-                    className="flex-1 min-h-[44px] px-3 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
+                    className="flex-1 min-h-[44px] px-3 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   >
                     <option value="waiter">Waiter</option>
                     <option value="chef">Chef</option>
                     <option value="manager">Manager</option>
                     <option value="owner">Owner</option>
                   </select>
-                  <Button type="submit" variant="sun">
+                  <Button type="submit" variant="sun" className="font-extrabold">
                     Add
                   </Button>
                 </div>
@@ -507,7 +579,7 @@ export default function AdminPage() {
                     <th className="p-3.5">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-mint/60">
+                <tbody className="divide-y divide-mint/60 font-bold">
                   {staff.map((m) => (
                     <tr key={m.id}>
                       <td className="p-3.5 font-extrabold text-ink">{m.name}</td>

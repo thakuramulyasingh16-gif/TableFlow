@@ -29,25 +29,21 @@ export async function GET(req: NextRequest) {
       end.setHours(23, 59, 59, 999);
     }
 
-    const [dailyPurchases, dailySales]: [
-      { day: string; total_spend: bigint }[],
-      { day: string; total_sales: bigint }[]
-    ] = await Promise.all([
-      prisma.$queryRaw`
-        SELECT TO_CHAR(purchased_at, 'YYYY-MM-DD') AS day, SUM(total_cost) AS total_spend
-        FROM purchases
-        WHERE purchased_at >= ${start} AND purchased_at <= ${end}
-        GROUP BY TO_CHAR(purchased_at, 'YYYY-MM-DD')
-        ORDER BY day ASC
-      `,
-      prisma.$queryRaw`
-        SELECT TO_CHAR(created_at, 'YYYY-MM-DD') AS day, SUM(amount_paise) AS total_sales
-        FROM payments
-        WHERE status = 'captured' AND created_at >= ${start} AND created_at <= ${end}
-        GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
-        ORDER BY day ASC
-      `,
-    ]);
+    const dailyPurchases = await prisma.$queryRaw<{ day: string; total_spend: bigint }[]>`
+      SELECT TO_CHAR(purchased_at, 'YYYY-MM-DD') AS day, SUM(total_cost) AS total_spend
+      FROM purchases
+      WHERE purchased_at >= ${start} AND purchased_at <= ${end}
+      GROUP BY TO_CHAR(purchased_at, 'YYYY-MM-DD')
+      ORDER BY day ASC
+    `;
+
+    const dailySales = await prisma.$queryRaw<{ day: string; total_sales: bigint }[]>`
+      SELECT TO_CHAR(created_at, 'YYYY-MM-DD') AS day, SUM(amount_paise) AS total_sales
+      FROM payments
+      WHERE status = 'captured' AND created_at >= ${start} AND created_at <= ${end}
+      GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
+      ORDER BY day ASC
+    `;
 
     const dayMap = new Map<string, { spend: number; sales: number }>();
     for (const dp of dailyPurchases) {
