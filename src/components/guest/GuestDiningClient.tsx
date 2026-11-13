@@ -756,16 +756,32 @@ export function GuestDiningClient({
                         )}
                       </div>
 
-                      <div className="mt-3 flex items-center justify-between gap-2">
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[17px] font-extrabold text-ink">{formatInr(price)}</span>
-                        <Button
-                          variant={item.isAvailable ? 'sun' : 'mint'}
-                          disabled={!item.isAvailable}
-                          onClick={() => addToCart(item)}
-                          className="px-4"
-                        >
-                          {item.isAvailable ? '+ Add' : 'Out of stock'}
-                        </Button>
+                        {!item.isAvailable ? (
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 rounded-full bg-tomato/15 text-tomato text-[12px] font-bold tracking-tight">
+                              Currently unavailable
+                            </span>
+                            <Button
+                              variant="mint"
+                              disabled={true}
+                              className="px-3 text-[13px] opacity-70 cursor-not-allowed"
+                              aria-label={`${item.name} is currently unavailable`}
+                            >
+                              Unavailable
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="sun"
+                            onClick={() => addToCart(item)}
+                            className="px-4"
+                            aria-label={`Add ${item.name} to order`}
+                          >
+                            + Add
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </Card>

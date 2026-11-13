@@ -4,6 +4,7 @@ import { AppError, handleApiError } from '@/lib/api-error';
 import { requireCsrf } from '@/lib/csrf';
 import { getEnv } from '@/lib/env';
 import { requireGuestSession } from '@/lib/guest-session';
+import { evaluateDishAvailability } from '@/lib/inventory/availability';
 import { calculateOrderPricing } from '@/lib/pricing';
 import { prisma } from '@/lib/prisma';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
@@ -44,7 +45,12 @@ export async function POST(req: NextRequest) {
     const variantIds = [...new Set(body.items.map((i) => i.variantId).filter((v): v is number => v != null))];
 
     const [menuItems, variants, deal] = await Promise.all([
-      prisma.menuItem.findMany({ where: { id: { in: itemIds } } }),
+      prisma.menuItem.findMany({
+        where: { id: { in: itemIds }, archivedAt: null },
+        include: {
+          recipeItems: { include: { ingredient: true } },
+        },
+      }),
       variantIds.length
         ? prisma.itemVariant.findMany({ where: { id: { in: variantIds } } })
         : Promise.resolve([]),
@@ -55,6 +61,23 @@ export async function POST(req: NextRequest) {
 
     if (body.dealCode && !deal) {
       throw new AppError(400, 'Promo code not found.', 'DEAL_NOT_FOUND');
+    }
+
+    // Verify all requested menu items exist and are not archived
+    if (menuItems.length !== itemIds.length) {
+      throw new AppError(400, 'One or more selected dishes are no longer offered.', 'ITEM_NOT_FOUND');
+    }
+
+    // Single source of truth availability check
+    for (const item of menuItems) {
+      const avail = evaluateDishAvailability(item);
+      if (!avail.isAvailable) {
+        throw new AppError(
+          400,
+          `"${item.name}" is currently unavailable because essential ingredients are out of stock.`,
+          'ITEM_UNAVAILABLE'
+        );
+      }
     }
 
     const menuItemsMap = new Map(menuItems.map((m) => [m.id, m]));

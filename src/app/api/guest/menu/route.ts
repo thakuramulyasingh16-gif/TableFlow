@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/api-error';
 import { requireGuestSession } from '@/lib/guest-session';
+import { evaluateDishAvailability } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 
 export async function GET() {
@@ -14,9 +15,13 @@ export async function GET() {
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       }),
       prisma.menuItem.findMany({
+        where: { archivedAt: null },
         include: {
           variants: { where: { isAvailable: true } },
           station: { select: { id: true, name: true, code: true } },
+          recipeItems: {
+            include: { ingredient: true },
+          },
         },
         orderBy: { name: 'asc' },
       }),
@@ -30,7 +35,19 @@ export async function GET() {
     ]);
 
     const activeDeals = deals.filter((d) => !d.endsAt || d.endsAt >= now);
-    return NextResponse.json({ categories, items, deals: activeDeals });
+
+    const publicItems = items.map((item) => {
+      const avail = evaluateDishAvailability(item);
+      // Strip internal recipe details and override reason from guest exposure
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { recipeItems, isAvailableOverride, overrideReason, archivedAt, ...publicData } = item;
+      return {
+        ...publicData,
+        isAvailable: avail.isAvailable,
+      };
+    });
+
+    return NextResponse.json({ categories, items: publicItems, deals: activeDeals });
   } catch (err) {
     return handleApiError(err);
   }

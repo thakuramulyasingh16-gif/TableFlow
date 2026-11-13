@@ -215,3 +215,92 @@ export const updateStaffSchema = z
   })
   .strict();
 
+export const ingredientUnitEnum = z.enum(['kg', 'g', 'l', 'ml', 'pcs']);
+export const stockStatusEnum = z.enum(['IN_STOCK', 'OUT_OF_STOCK', 'ORDERED']);
+
+export const toggleStockStatusSchema = z
+  .object({
+    stockStatus: stockStatusEnum,
+    reason: z.string().trim().max(255).optional(),
+  })
+  .strict();
+
+export const acknowledgeAlertSchema = z
+  .object({
+    quantity: z.number().positive().max(100000),
+    unit: ingredientUnitEnum,
+    totalCostRupees: z.number().positive().max(10000000),
+    supplier: z.string().trim().max(190).optional(),
+    notes: z.string().trim().max(500).optional(),
+    purchasedAt: z.string().datetime().optional(),
+  })
+  .strict();
+
+export const createPurchaseSchema = z
+  .object({
+    ingredientId: z.number().int().positive(),
+    quantity: z.number().positive().max(100000),
+    unit: ingredientUnitEnum,
+    totalCostRupees: z.number().positive().max(10000000),
+    supplier: z.string().trim().max(190).optional(),
+    notes: z.string().trim().max(500).optional(),
+    purchasedAt: z.string().datetime().optional(),
+    isReceived: z.boolean().optional(),
+  })
+  .strict();
+
+export const editPurchaseSchema = z
+  .object({
+    quantity: z.number().positive().max(100000).optional(),
+    unit: ingredientUnitEnum.optional(),
+    totalCostRupees: z.number().positive().max(10000000).optional(),
+    supplier: z.string().trim().max(190).optional().nullable(),
+    notes: z.string().trim().max(500).optional().nullable(),
+    reason: z.string().trim().min(3, 'Reason is required for editing a purchase').max(255),
+  })
+  .strict();
+
+export const createIngredientSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    unit: ingredientUnitEnum,
+    notes: z.string().trim().max(500).optional(),
+    stockStatus: stockStatusEnum.optional(),
+  })
+  .strict();
+
+export const saveRecipeSchema = z
+  .object({
+    menuItemId: z.number().int().positive(),
+    items: z
+      .array(
+        z
+          .object({
+            ingredientId: z.number().int().positive().optional(),
+            newIngredientName: z.string().trim().min(2).max(120).optional(),
+            quantityPerServing: z.number().positive().max(10000).optional().nullable(),
+            unit: ingredientUnitEnum,
+            isOptional: z.boolean().default(false),
+          })
+          .strict()
+      )
+      .max(50),
+  })
+  .strict();
+
+export const overrideDishAvailabilitySchema = z
+  .object({
+    menuItemId: z.number().int().positive(),
+    isAvailableOverride: z.boolean().nullable(),
+    overrideReason: z.string().trim().min(3, 'Override reason is required').max(255),
+  })
+  .strict();
+
+export const bulkDeleteDishesSchema = z
+  .object({
+    itemIds: z.array(z.number().int().positive()).optional(),
+    deleteAll: z.boolean().optional(),
+    confirmationText: z.literal('DELETE'),
+  })
+  .strict();
+
