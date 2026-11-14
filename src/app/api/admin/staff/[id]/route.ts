@@ -20,6 +20,28 @@ export const PATCH = withStaffAuth<{ id: string }>(['owner'], async (req, { para
   });
   if (!target) throw new AppError(404, 'Staff user not found.', 'USER_NOT_FOUND');
 
+  const isTargetActiveOwner = target.role.name === 'owner' && target.isActive;
+  const isDemotingOrDeactivating =
+    (body.isActive === false && target.isActive) ||
+    (body.role !== undefined && body.role !== 'owner' && target.role.name === 'owner');
+
+  if (isTargetActiveOwner && isDemotingOrDeactivating) {
+    const activeOwnerCount = await prisma.user.count({
+      where: {
+        role: { name: 'owner' },
+        isActive: true,
+        id: { not: target.id },
+      },
+    });
+    if (activeOwnerCount === 0) {
+      throw new AppError(
+        400,
+        'Cannot demote or deactivate the last remaining active owner.',
+        'LAST_OWNER_PROTECTION'
+      );
+    }
+  }
+
   if (target.id === actor.id && body.isActive === false) {
     throw new AppError(400, 'You cannot deactivate your own owner account.', 'SELF_DEACTIVATE_BLOCKED');
   }

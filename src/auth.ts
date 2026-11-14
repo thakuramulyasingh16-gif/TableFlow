@@ -6,6 +6,7 @@ import { recordAuditLog } from './lib/audit';
 import { getEnv } from './lib/env';
 import { prisma } from './lib/prisma';
 import { enforceRateLimit } from './lib/rate-limit';
+import { consumeRecoveryCode, verifyTotp } from './lib/totp';
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MINUTES = 15;
@@ -14,6 +15,7 @@ const DUMMY_HASH = '$2b$12$CwTycUXWue0Thq9StjUM0uJ8u1l4P3z9b/3dY8/3L0S1p2nF2qKXe
 const credentialsSchema = z.object({
   email: z.string().trim().email().max(190),
   password: z.string().min(8).max(128),
+  totpCode: z.string().trim().max(32).optional(),
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -33,6 +35,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
+        totpCode: { label: 'MFA Code', type: 'text' },
       },
       async authorize(rawCredentials, req) {
         getEnv();
@@ -42,11 +45,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = parsed.data.email.toLowerCase();
         const password = parsed.data.password;
 
-        // Rate limit login attempts per email/IP
+        // Separate rate limits per IP and per Email
         const forwarded = req?.headers?.get?.('x-forwarded-for') || '';
         const ip = forwarded.split(',')[0].trim() || '127.0.0.1';
         try {
-          await enforceRateLimit('login', `${ip}:${email}`);
+          await enforceRateLimit('login_ip', ip);
+          await enforceRateLimit('login_email', email);
         } catch {
           return null;
         }
@@ -116,6 +120,54 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
+        // TOTP MFA verification for MFA-enabled accounts or privileged roles
+        if (user.mfaEnabled && user.mfaSecret) {
+          const code = parsed.data.totpCode?.trim();
+          if (!code) {
+            await recordAuditLog({
+              actorUserId: user.id,
+              actorRole: user.role.name,
+              action: 'LOGIN_MFA_REQUIRED',
+              entityType: 'user',
+              entityId: user.id,
+              ipAddress: ip,
+            });
+            return null;
+          }
+
+          let mfaOk = verifyTotp(code, user.mfaSecret);
+          if (!mfaOk && user.mfaRecoveryCodes) {
+            const remaining = consumeRecoveryCode(code, user.mfaRecoveryCodes);
+            if (remaining) {
+              mfaOk = true;
+              await prisma.user.update({
+                where: { id: user.id },
+                data: { mfaRecoveryCodes: JSON.stringify(remaining) },
+              });
+              await recordAuditLog({
+                actorUserId: user.id,
+                actorRole: user.role.name,
+                action: 'MFA_RECOVERY_CODE_USED',
+                entityType: 'user',
+                entityId: user.id,
+                ipAddress: ip,
+              });
+            }
+          }
+
+          if (!mfaOk) {
+            await recordAuditLog({
+              actorUserId: user.id,
+              actorRole: user.role.name,
+              action: 'LOGIN_MFA_FAILED',
+              entityType: 'user',
+              entityId: user.id,
+              ipAddress: ip,
+            });
+            return null;
+          }
+        }
+
         await prisma.user.update({
           where: { id: user.id },
           data: { failedLoginAttempts: 0, lockedUntil: null },
@@ -136,6 +188,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           role: user.role.name,
           tokenVersion: user.tokenVersion,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
@@ -146,6 +199,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.userId = Number(user.id);
         token.role = (user as { role: string }).role;
         token.tokenVersion = (user as { tokenVersion: number }).tokenVersion;
+        token.mustChangePassword = (user as { mustChangePassword?: boolean }).mustChangePassword;
       }
       return token;
     },
@@ -154,6 +208,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = String(token.userId || '');
         (session.user as { role?: string }).role = token.role as string;
         (session.user as { tokenVersion?: number }).tokenVersion = token.tokenVersion as number;
+        (session.user as { mustChangePassword?: boolean }).mustChangePassword = token.mustChangePassword as boolean;
       }
       return session;
     },

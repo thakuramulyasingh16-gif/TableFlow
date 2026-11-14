@@ -4,11 +4,23 @@ import { NextRequest } from 'next/server';
 import { AppError } from './api-error';
 import { getEnv } from './env';
 
-type LimiterBucket = 'global' | 'login' | 'order' | 'waiter_call' | 'payment' | 'stock_toggle' | 'purchase' | 'table_pin';
+type LimiterBucket =
+  | 'global'
+  | 'login'
+  | 'login_ip'
+  | 'login_email'
+  | 'order'
+  | 'waiter_call'
+  | 'payment'
+  | 'stock_toggle'
+  | 'purchase'
+  | 'table_pin';
 
 const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: `${number} s` | `${number} m` }> = {
   global: { max: 300, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login: { max: 10, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  login_ip: { max: 20, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  login_email: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   order: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   waiter_call: { max: 6, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   payment: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
