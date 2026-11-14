@@ -1,9 +1,20 @@
 import { test, expect } from '@playwright/test';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 test.describe('TableFlow Guest Dining E2E Smoke Flow', () => {
   test('Guest scans table QR, views bilingual menu, configures cart, and proceeds with ordering', async ({ page }) => {
-    // 1. Guest scans QR and lands on Table T3
-    await page.goto('/t/f-JTccy6P4JzLO9WxYd2Tzhth0_yv1lIxVglNMO1pyc');
+    let qrToken = 'f-JTccy6P4JzLO9WxYd2Tzhth0_yv1lIxVglNMO1pyc';
+    try {
+      const table = await prisma.table.findFirst({ where: { isActive: true } });
+      if (table) qrToken = table.qrToken;
+    } catch {
+      // fallback
+    }
+
+    // 1. Guest scans QR and lands on Table
+    await page.goto(`/t/${qrToken}`);
 
     // Verify Title and branding
     await expect(page).toHaveTitle(/TableFlow/i);
@@ -47,5 +58,9 @@ test.describe('TableFlow Guest Dining E2E Smoke Flow', () => {
     // Verify unauthorized direct access to /kitchen redirects to login
     await page.goto('/kitchen');
     await expect(page).toHaveURL(/.*login.*/);
+  });
+
+  test.afterAll(async () => {
+    await prisma.$disconnect().catch(() => {});
   });
 });

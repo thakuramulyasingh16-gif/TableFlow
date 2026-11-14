@@ -6,12 +6,31 @@ TableFlow is a single-project **Next.js (App Router) + TypeScript + Tailwind CSS
 
 ## 🚀 Start Here (Quickstart)
 
-### Windows (One Click)
-Double-click `start.bat` in the repository root.
-- Automatically checks Node.js & `.env`
-- Automatically provisions/starts PostgreSQL container if needed
-- Validates database and pending migrations
-- Launches the Next.js dev server and opens your browser to `http://localhost:3000`
+### One-Click Start on Windows
+
+You can manage TableFlow on Windows with zero terminal commands using two root batch scripts:
+- **`start-tableflow.bat`**: Starts the development server, verifies dependencies and database status, and opens your browser.
+- **`stop-tableflow.bat`**: Gracefully detects the listening server process, prompts for confirmation, and stops it cleanly.
+
+#### Prerequisites
+- **Node.js 20+**: Ensure Node.js and npm are installed and in your `PATH`.
+- **Database Reachable**: Your PostgreSQL server (local instance, Docker container, or cloud database such as Neon/Supabase configured in `.env`) must be running and reachable before starting. If using Docker locally, ensure Docker Desktop is running.
+
+#### Usage
+1. **Double-click `start-tableflow.bat`**:
+   - Automatically handles project directory resolution even if launched from another location or paths with spaces/apostrophes.
+   - If the application is already running, it immediately opens your browser to `http://localhost:3000/login` and exits without starting a redundant second instance.
+   - If port 3000 is occupied by an unrelated or hung process, it identifies the process name and PID and asks for confirmation (`[Y/N]`) before terminating it.
+   - Automatically runs `npm ci` if `node_modules` is missing, and `npx prisma generate` if the Prisma client is missing.
+   - If `.env` is missing (first-run behavior), it invokes `npm run setup` automatically, prompts you to save the generated staff credentials, and pauses before booting.
+   - Launches a non-blocking background browser opener that polls until HTTP 200 is confirmed and then opens `http://localhost:3000/login`.
+2. **Double-click `stop-tableflow.bat`**:
+   - Scans port 3000, displays the running process name and PID, prompts for confirmation, and safely frees the port.
+
+#### Creating a Desktop Shortcut
+1. Right-click `start-tableflow.bat` in the repository root -> **Show more options** -> **Send to** -> **Desktop (create shortcut)**.
+2. (Optional) Right-click the newly created desktop shortcut -> **Properties** -> change name to "TableFlow Server" and choose a custom icon.
+3. You can now launch TableFlow directly from your desktop at any time!
 
 ### Command Line (Any OS)
 

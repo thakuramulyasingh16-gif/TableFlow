@@ -133,6 +133,7 @@ model User {
   mfaEnabled          Boolean      @default(false) @map("mfa_enabled")
   mfaSecret           String?      @map("mfa_secret") @db.VarChar(255)
   mfaRecoveryCodes    String?      @map("mfa_recovery_codes") @db.Text
+  mfaLastTimeStep     Int?         @map("mfa_last_time_step")
   mustChangePassword  Boolean      @default(false) @map("must_change_password")
   createdAt           DateTime     @default(now()) @map("created_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")

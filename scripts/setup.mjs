@@ -199,5 +199,5 @@ try {
 console.log('\n======================================================================');
 console.log('  🎉 SETUP COMPLETE! You can now start the application with:         ');
 console.log('       npm run dev                                                    ');
-console.log('     or double-click "start.bat" on Windows.                          ');
+console.log('     or double-click "start-tableflow.bat" on Windows.                ');
 console.log('======================================================================\n');

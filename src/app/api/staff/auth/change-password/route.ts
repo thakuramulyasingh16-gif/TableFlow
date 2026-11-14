@@ -65,5 +65,6 @@ export const POST = withStaffAuth(
     });
 
     return NextResponse.json({ success: true, message: 'Password updated successfully.' });
-  }
+  },
+  { allowChangePassword: true }
 );

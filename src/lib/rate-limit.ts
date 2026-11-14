@@ -15,7 +15,9 @@ type LimiterBucket =
   | 'stock_toggle'
   | 'purchase'
   | 'table_pin'
-  | 'health';
+  | 'health'
+  | 'mfa_verify_user'
+  | 'mfa_verify_ip';
 
 const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: `${number} s` | `${number} m` }> = {
   global: { max: 300, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
@@ -29,6 +31,8 @@ const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: 
   purchase: { max: 30, windowMs: 5 * 60 * 1000, windowStr: '5 m' },
   table_pin: { max: 5, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   health: { max: 60, windowMs: 1 * 60 * 1000, windowStr: '1 m' },
+  mfa_verify_user: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  mfa_verify_ip: { max: 20, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
 };
 
 const memoryWindows = new Map<string, number[]>();
