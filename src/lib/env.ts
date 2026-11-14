@@ -32,6 +32,15 @@ const envSchema = z.object({
         return false;
       }
     }, 'MFA_ENCRYPTION_KEY must be a 32-byte base64-encoded key'),
+  REALTIME_CHANNEL_SECRET: z
+    .string()
+    .optional()
+    .default('')
+    .refine((val) => {
+      if (process.env.NODE_ENV === 'production' && !val) return false;
+      if (!val) return true;
+      return val.length >= 32;
+    }, 'REALTIME_CHANNEL_SECRET must be at least 32 characters, and is required in production'),
 
   CGST_BPS: z.coerce.number().int().min(0).max(2800).default(250),
   SGST_BPS: z.coerce.number().int().min(0).max(2800).default(250),
@@ -84,6 +93,9 @@ export function loadEnv(rawEnv: Record<string, string | undefined> = process.env
     }
     if (!data.MFA_ENCRYPTION_KEY) {
       throw new Error('MFA_ENCRYPTION_KEY is required in production');
+    }
+    if (!data.REALTIME_CHANNEL_SECRET) {
+      throw new Error('REALTIME_CHANNEL_SECRET is required in production');
     }
   }
 
