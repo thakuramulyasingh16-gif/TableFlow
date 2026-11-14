@@ -9,7 +9,7 @@ import { broadcastRealtime } from './realtime';
 
 function getRazorpayClient() {
   const env = getEnv();
-  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET || env.RAZORPAY_KEY_ID.includes('replace_with')) {
+  if (env.isPaymentsMock || !env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) {
     return null;
   }
   return new Razorpay({
@@ -18,11 +18,17 @@ function getRazorpayClient() {
   });
 }
 
+function distributeParts(total: number, count: number): number[] {
+  const base = Math.floor(total / count);
+  const rem = total - base * count;
+  return Array.from({ length: count }, (_, idx) => base + (idx < rem ? 1 : 0));
+}
+
 export async function computeSessionBillSummary(tableSessionId: number) {
   const orders = await prisma.order.findMany({
     where: {
       tableSessionId,
-      status: { not: 'cancelled' },
+      status: { in: ['confirmed', 'preparing', 'ready', 'served'] },
     },
     include: { items: true },
     orderBy: { createdAt: 'asc' },
@@ -111,23 +117,27 @@ export async function createBillSplits({
     await tx.billSplit.deleteMany({ where: { tableSessionId, status: 'pending' } });
 
     if (splitType === 'equal') {
-      const base = Math.floor(summary.remainingPaise / parts);
-      const rem = summary.remainingPaise - base * parts;
+      const amountParts = distributeParts(summary.remainingPaise, parts);
+      const subtotalParts = distributeParts(summary.subtotalPaise, parts);
+      const discountParts = distributeParts(summary.discountPaise, parts);
+      const cgstParts = distributeParts(summary.cgstPaise, parts);
+      const sgstParts = distributeParts(summary.sgstPaise, parts);
+
       const rows = [];
-      for (let i = 1; i <= parts; i++) {
+      for (let i = 0; i < parts; i++) {
         rows.push(
           await tx.billSplit.create({
             data: {
               tableSessionId,
               splitType: 'equal',
-              partNumber: i,
+              partNumber: i + 1,
               totalParts: parts,
-              subtotalPaise: Math.round(summary.subtotalPaise / parts),
-              discountPaise: Math.round(summary.discountPaise / parts),
-              cgstPaise: Math.round(summary.cgstPaise / parts),
-              sgstPaise: Math.round(summary.sgstPaise / parts),
+              subtotalPaise: subtotalParts[i]!,
+              discountPaise: discountParts[i]!,
+              cgstPaise: cgstParts[i]!,
+              sgstPaise: sgstParts[i]!,
               tipPaise: 0,
-              amountPaise: base + (i === 1 ? rem : 0),
+              amountPaise: amountParts[i]!,
               status: 'pending',
             },
           })
@@ -213,13 +223,13 @@ export async function createBillSplits({
 
 export async function createRazorpayOrderForSession({
   tableSessionId,
-  tableId,
+  tableId: _tableId,
   tableNumber,
   billSplitId = null,
   tipPaise = 0,
 }: {
   tableSessionId: number;
-  tableId: number;
+  tableId?: number;
   tableNumber: string;
   billSplitId?: number | null;
   tipPaise?: number;
@@ -247,6 +257,58 @@ export async function createRazorpayOrderForSession({
   const safeTip = Math.max(0, Math.min(500000, Math.round(tipPaise || 0)));
   const totalPayable = baseAmount + safeTip;
 
+  // 1. Expire stale created payments (> 15 minutes)
+  await prisma.payment.updateMany({
+    where: {
+      tableSessionId,
+      status: 'created',
+      createdAt: { lt: new Date(Date.now() - 15 * 60 * 1000) },
+    },
+    data: { status: 'failed' },
+  });
+
+  // 2. Reuse open created payment for same session & split if amount matches
+  const existingPayment = await prisma.payment.findFirst({
+    where: {
+      tableSessionId,
+      billSplitId: splitId,
+      status: 'created',
+      createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) },
+    },
+  });
+
+  if (existingPayment) {
+    if (existingPayment.amountPaise === totalPayable) {
+      return {
+        paymentId: existingPayment.id,
+        razorpayOrderId: existingPayment.razorpayOrderId,
+        amountPaise: existingPayment.amountPaise,
+        currency: existingPayment.currency,
+        keyId: env.NEXT_PUBLIC_RAZORPAY_KEY_ID || env.RAZORPAY_KEY_ID || 'rzp_test_mock_mode',
+        isMock: existingPayment.razorpayOrderId.startsWith('order_mock_'),
+      };
+    } else {
+      // Amount/tip changed: invalidate previous created order
+      await prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: { status: 'failed' },
+      });
+    }
+  }
+
+  // 3. Reject duplicate order creation if another payment is already pending for this session
+  const pendingOther = await prisma.payment.findFirst({
+    where: {
+      tableSessionId,
+      billSplitId: { not: splitId },
+      status: 'created',
+      createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) },
+    },
+  });
+  if (pendingOther) {
+    throw new AppError(409, 'Another payment order is currently pending for this session.', 'PAYMENT_PENDING');
+  }
+
   const rzp = getRazorpayClient();
   let razorpayOrderId: string;
   let isMock = false;
@@ -259,12 +321,11 @@ export async function createRazorpayOrderForSession({
       notes: { table_number: tableNumber, table_session_id: String(tableSessionId) },
     });
     razorpayOrderId = rzpOrder.id;
-  } else {
-    if (env.isProd) {
-      throw new AppError(500, 'Payment gateway is not configured.', 'PAYMENT_CONFIG_ERROR');
-    }
+  } else if (env.isPaymentsMock) {
     razorpayOrderId = `order_mock_${crypto.randomBytes(8).toString('hex')}`;
     isMock = true;
+  } else {
+    throw new AppError(500, 'Payment gateway is not configured.', 'PAYMENT_CONFIG_ERROR');
   }
 
   const payment = await prisma.payment.create({
@@ -277,17 +338,6 @@ export async function createRazorpayOrderForSession({
       currency: 'INR',
       status: 'created',
     },
-  });
-
-  await prisma.table.update({
-    where: { id: tableId },
-    data: { status: 'bill_requested' },
-  });
-
-  await broadcastRealtime('staff:updates', 'table:status_changed', {
-    id: tableId,
-    tableNumber,
-    status: 'bill_requested',
   });
 
   return {
@@ -324,12 +374,14 @@ export async function verifyAndCapturePayment({
     return { payment, sessionClosed: false };
   }
 
-  const secret =
-    env.RAZORPAY_KEY_SECRET && !env.RAZORPAY_KEY_SECRET.includes('replace_with')
-      ? env.RAZORPAY_KEY_SECRET
-      : !env.isProd
-      ? 'test_mock_secret'
-      : '';
+  let secret = env.RAZORPAY_KEY_SECRET;
+  if (!secret) {
+    if (env.isPaymentsMock) {
+      secret = 'test_mock_secret';
+    } else {
+      throw new AppError(500, 'Razorpay secret is not configured.', 'PAYMENT_CONFIG_ERROR');
+    }
+  }
 
   const valid = verifyHmacSha256(`${razorpayOrderId}|${razorpayPaymentId}`, secret, razorpaySignature);
   if (!valid) {
@@ -343,13 +395,22 @@ export async function verifyAndCapturePayment({
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const updatedPayment = await tx.payment.update({
-      where: { id: payment.id },
+    const updateCount = await tx.payment.updateMany({
+      where: { id: payment.id, status: { not: 'captured' } },
       data: {
         razorpayPaymentId,
         status: 'captured',
         method,
       },
+    });
+
+    if (updateCount.count === 0) {
+      const fresh = await tx.payment.findUnique({ where: { id: payment.id } });
+      return { payment: fresh || payment, sessionClosed: false };
+    }
+
+    const updatedPayment = await tx.payment.findUniqueOrThrow({
+      where: { id: payment.id },
     });
 
     if (payment.billSplitId) {
@@ -368,7 +429,7 @@ export async function verifyAndCapturePayment({
     });
 
     const allOrders = await tx.order.findMany({
-      where: { tableSessionId, status: { not: 'cancelled' } },
+      where: { tableSessionId, status: { in: ['confirmed', 'preparing', 'ready', 'served'] } },
     });
     const ordersTotal = allOrders.reduce((acc, o) => acc + o.totalPaise, 0);
     const capturedPayments = await tx.payment.findMany({
@@ -428,17 +489,28 @@ export async function processRazorpayWebhook({
   eventIdHeader?: string;
 }) {
   const env = getEnv();
-  if (!env.RAZORPAY_WEBHOOK_SECRET) {
+  const webhookSecret = env.RAZORPAY_WEBHOOK_SECRET || (env.isPaymentsMock ? 'test_mock_webhook_secret' : '');
+  if (!webhookSecret) {
     throw new AppError(500, 'Webhook secret not configured.', 'WEBHOOK_NOT_CONFIGURED');
   }
 
-  if (!verifyHmacSha256(rawBody, env.RAZORPAY_WEBHOOK_SECRET, signature)) {
+  if (!verifyHmacSha256(rawBody, webhookSecret, signature)) {
     throw new AppError(400, 'Invalid webhook signature.', 'INVALID_WEBHOOK_SIGNATURE');
   }
 
   const event = JSON.parse(rawBody) as {
     event?: string;
-    payload?: { payment?: { entity?: { id?: string; order_id?: string; method?: string } } };
+    payload?: {
+      payment?: {
+        entity?: {
+          id?: string;
+          order_id?: string;
+          method?: string;
+          amount?: number;
+          currency?: string;
+        };
+      };
+    };
   };
   const eventId = eventIdHeader || crypto.createHash('sha256').update(rawBody).digest('hex');
 
@@ -454,23 +526,45 @@ export async function processRazorpayWebhook({
     const payment = await prisma.payment.findUnique({ where: { razorpayOrderId: rzpOrderId } });
     if (!payment) return { status: 'order_not_found' };
 
+    // Webhook amount/currency validation against stored payment
+    if (entity.amount != null && entity.amount !== payment.amountPaise) {
+      await recordAuditLog({
+        action: 'WEBHOOK_AMOUNT_MISMATCH',
+        entityType: 'payment',
+        entityId: payment.id,
+        metadata: { expected: payment.amountPaise, received: entity.amount },
+      });
+      throw new AppError(400, 'Webhook payment amount does not match stored payment.', 'AMOUNT_MISMATCH');
+    }
+
+    if (entity.currency && entity.currency.toUpperCase() !== payment.currency.toUpperCase()) {
+      await recordAuditLog({
+        action: 'WEBHOOK_CURRENCY_MISMATCH',
+        entityType: 'payment',
+        entityId: payment.id,
+        metadata: { expected: payment.currency, received: entity.currency },
+      });
+      throw new AppError(400, 'Webhook payment currency does not match stored payment.', 'CURRENCY_MISMATCH');
+    }
+
     await prisma.$transaction(async (tx) => {
-      if (payment.status !== 'captured') {
-        await tx.payment.update({
-          where: { id: payment.id },
-          data: {
-            razorpayPaymentId: rzpPaymentId,
-            status: 'captured',
-            method: entity?.method || payment.method || 'upi',
-            webhookEventId: eventId,
-          },
-        });
+      const updateResult = await tx.payment.updateMany({
+        where: { id: payment.id, status: { not: 'captured' } },
+        data: {
+          razorpayPaymentId: rzpPaymentId,
+          status: 'captured',
+          method: entity?.method || payment.method || 'upi',
+          webhookEventId: eventId,
+        },
+      });
+
+      if (updateResult.count > 0) {
         if (payment.billSplitId) {
           await tx.billSplit.update({ where: { id: payment.billSplitId }, data: { status: 'paid' } });
         }
 
         const orders = await tx.order.findMany({
-          where: { tableSessionId: payment.tableSessionId, status: { not: 'cancelled' } },
+          where: { tableSessionId: payment.tableSessionId, status: { in: ['confirmed', 'preparing', 'ready', 'served'] } },
         });
         const ordersTotal = orders.reduce((acc, o) => acc + o.totalPaise, 0);
         const captured = await tx.payment.findMany({
@@ -503,5 +597,75 @@ export async function processRazorpayWebhook({
   }
 
   return { status: 'processed' };
+}
+
+export async function refundCapturedPayment({
+  paymentId,
+  amountPaise,
+  reason,
+  actorUserId,
+  actorRole,
+}: {
+  paymentId: number;
+  amountPaise?: number;
+  reason?: string;
+  actorUserId?: number;
+  actorRole?: string;
+}) {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+  });
+  if (!payment) {
+    throw new AppError(404, 'Payment record not found.', 'PAYMENT_NOT_FOUND');
+  }
+  if (payment.status !== 'captured') {
+    throw new AppError(400, 'Only captured payments can be refunded.', 'PAYMENT_NOT_REFUNDABLE');
+  }
+
+  const refundAmount = amountPaise || payment.amountPaise;
+  if (refundAmount <= 0 || refundAmount > payment.amountPaise) {
+    throw new AppError(400, 'Invalid refund amount.', 'INVALID_REFUND_AMOUNT');
+  }
+
+  const rzp = getRazorpayClient();
+  if (rzp && payment.razorpayPaymentId && !payment.razorpayPaymentId.startsWith('pay_mock_')) {
+    await rzp.payments.refund(payment.razorpayPaymentId, {
+      amount: refundAmount,
+      notes: { reason: reason || 'Manager refund', actorRole: actorRole || 'manager' },
+    });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const p = await tx.payment.update({
+      where: { id: payment.id },
+      data: { status: 'refunded' },
+    });
+
+    await recordAuditLog({
+      actorUserId,
+      actorRole,
+      action: 'PAYMENT_REFUNDED',
+      entityType: 'payment',
+      entityId: payment.id,
+      metadata: { amountPaise: refundAmount, reason, razorpayPaymentId: payment.razorpayPaymentId },
+      tx,
+    });
+
+    return p;
+  });
+
+  await Promise.all([
+    broadcastRealtime(`table_session:${payment.tableSessionId}`, 'payment:refunded', {
+      paymentId: payment.id,
+      amountPaise: refundAmount,
+    }),
+    broadcastRealtime('staff:updates', 'payment:refunded', {
+      paymentId: payment.id,
+      tableSessionId: payment.tableSessionId,
+      amountPaise: refundAmount,
+    }),
+  ]);
+
+  return updated;
 }
 

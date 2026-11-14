@@ -185,11 +185,22 @@ export function GuestDiningClient({
   const [pinInput, setPinInput] = useState('');
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const [pinError, setPinError] = useState('');
+  const [billRequested, setBillRequested] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
   }, []);
+
+  const handleRequestPrintedBill = async () => {
+    try {
+      await apiFetch('/api/guest/bill/request', { method: 'POST', csrf: true });
+      setBillRequested(true);
+      showToast('Staff has been notified for your printed bill');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to request bill');
+    }
+  };
 
   const refreshOrdersAndBill = useCallback(async () => {
     const [ordRes, billRes] = await Promise.all([
@@ -1104,6 +1115,15 @@ export function GuestDiningClient({
                       Pay {formatInr(bill.remainingPaise + tipRupees * 100)} via Razorpay (UPI)
                     </Button>
                   )}
+
+                  <Button
+                    variant="mint"
+                    fullWidth
+                    onClick={handleRequestPrintedBill}
+                    disabled={billRequested}
+                  >
+                    {billRequested ? 'Printed Bill Requested' : 'Ask Waiter for Printed Bill'}
+                  </Button>
                 </Card>
               )}
 
