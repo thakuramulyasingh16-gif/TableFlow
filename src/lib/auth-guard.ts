@@ -67,21 +67,28 @@ export async function requireStaffAuth(
   allowedRoles: RoleName[],
   options?: StaffAuthOptions
 ): Promise<AuthenticatedStaff> {
-  let session;
+  let session: unknown;
   try {
     session = await sessionResolver();
   } catch {
     throw new AppError(401, 'Authentication required', 'AUTH_REQUIRED');
   }
 
-  const userIdStr = session?.user?.id;
-  const sessionUser = session?.user as
+  const sessionObj = session as
     | {
-        tokenVersion?: number;
-        mustChangePassword?: boolean;
-        mfaSetupRequired?: boolean;
+        user?: {
+          id?: string;
+          role?: string;
+          tokenVersion?: number;
+          mustChangePassword?: boolean;
+          mfaSetupRequired?: boolean;
+        };
       }
+    | null
     | undefined;
+
+  const userIdStr = sessionObj?.user?.id;
+  const sessionUser = sessionObj?.user;
   const sessionTokenVersion = sessionUser?.tokenVersion;
 
   if (!userIdStr) {
