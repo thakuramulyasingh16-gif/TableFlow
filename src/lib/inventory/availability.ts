@@ -1,5 +1,7 @@
-import { Ingredient, RecipeItem, StockStatus } from '@prisma/client';
+import { Ingredient, Prisma, RecipeItem, StockStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+
+type DbClient = Prisma.TransactionClient | typeof prisma;
 
 export interface DishAvailabilityResult {
   isAvailable: boolean;
@@ -88,8 +90,11 @@ export function evaluateDishAvailability(
 /**
  * Recalculates and persists the availability status for a single menu item in the database.
  */
-export async function recalculateMenuItemAvailability(menuItemId: number): Promise<DishAvailabilityResult> {
-  const item = await prisma.menuItem.findUnique({
+export async function recalculateMenuItemAvailability(
+  menuItemId: number,
+  client: DbClient = prisma
+): Promise<DishAvailabilityResult> {
+  const item = await client.menuItem.findUnique({
     where: { id: menuItemId },
     include: {
       recipeItems: {
@@ -106,7 +111,7 @@ export async function recalculateMenuItemAvailability(menuItemId: number): Promi
 
   // Sync to database if changed
   if (item.isAvailable !== result.isAvailable) {
-    await prisma.menuItem.update({
+    await client.menuItem.update({
       where: { id: menuItemId },
       data: { isAvailable: result.isAvailable },
     });
@@ -118,8 +123,8 @@ export async function recalculateMenuItemAvailability(menuItemId: number): Promi
 /**
  * Returns all active (non-archived) menu items that use the given ingredient.
  */
-export async function getDishesUsingIngredient(ingredientId: number) {
-  const recipeItems = await prisma.recipeItem.findMany({
+export async function getDishesUsingIngredient(ingredientId: number, client: DbClient = prisma) {
+  const recipeItems = await client.recipeItem.findMany({
     where: {
       ingredientId,
       menuItem: { archivedAt: null },
@@ -150,15 +155,18 @@ export async function getDishesUsingIngredient(ingredientId: number) {
  * Recalculates availability for all menu items that use a specific ingredient,
  * updates the database, and returns the affected dish names.
  */
-export async function syncAvailabilityForIngredient(ingredientId: number): Promise<{
+export async function syncAvailabilityForIngredient(
+  ingredientId: number,
+  client: DbClient = prisma
+): Promise<{
   affectedDishes: string[];
   dishCount: number;
 }> {
-  const dishes = await getDishesUsingIngredient(ingredientId);
+  const dishes = await getDishesUsingIngredient(ingredientId, client);
   const affectedDishes: string[] = [];
 
   for (const d of dishes) {
-    await recalculateMenuItemAvailability(d.id);
+    await recalculateMenuItemAvailability(d.id, client);
     affectedDishes.push(d.name);
   }
 

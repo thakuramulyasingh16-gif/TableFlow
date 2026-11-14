@@ -111,16 +111,17 @@ export const POST = withStaffAuth<{ id: string }>(['chef', 'manager', 'owner'], 
         });
       }
 
+      // Synchronize availability on all dishes using this ingredient inside the transaction
+      // so stock status and dish availability cannot drift
+      const { affectedDishes: syncedDishNames } = await syncAvailabilityForIngredient(ingredient.id, tx);
+
       return {
         updated,
-        affectedDishNames,
+        affectedDishNames: syncedDishNames.length > 0 ? syncedDishNames : affectedDishNames,
         alertCreated: createdAlertId !== null,
         createdAlertId,
       };
     });
-
-    // 4. Synchronize availability on all dishes using this ingredient
-    await syncAvailabilityForIngredient(ingredient.id);
 
     // 5. Audit Log
     await recordAuditLog({

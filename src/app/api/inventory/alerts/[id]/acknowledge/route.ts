@@ -98,11 +98,11 @@ export const POST = withStaffAuth<{ id: string }>(['manager', 'owner'], async (r
         },
       });
 
+      // 5. Synchronize availability on affected dishes inside transaction
+      await syncAvailabilityForIngredient(alert.ingredientId, tx);
+
       return { purchase, updatedAlert };
     });
-
-    // 5. Synchronize availability on affected dishes
-    await syncAvailabilityForIngredient(alert.ingredientId);
 
     // 6. Audit log
     await recordAuditLog({
