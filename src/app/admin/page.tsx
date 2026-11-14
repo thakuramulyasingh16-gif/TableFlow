@@ -321,12 +321,29 @@ export default function AdminPage() {
             { id: 'purchases', label: 'Purchases', icon: ShoppingCart },
             { id: 'reports', label: 'Financial Reports', icon: PieChart },
             { id: 'tables', label: 'Tables & QRs', icon: QrCode },
-            ...(user?.role === 'owner' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users }] : []),
+            ...(user?.role === 'owner'
+              ? [
+                  { id: 'staff', label: 'Staff & Roles', icon: Users },
+                  { id: 'audit', label: 'Audit Logs', icon: Shield, href: '/admin/audit-logs' },
+                ]
+              : []),
             { id: 'orders', label: 'Orders & Payments', icon: RefreshCw },
             { id: 'settings', label: 'Settings & Taxes', icon: Settings },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
+            if (t.href) {
+              return (
+                <Link
+                  key={t.id}
+                  href={t.href}
+                  className="min-h-[42px] px-4 rounded-full text-[13px] font-extrabold transition flex items-center gap-1.5 cursor-pointer bg-mint-bg text-leaf hover:bg-mint"
+                >
+                  <Icon className="w-4 h-4" />
+                  {t.label}
+                </Link>
+              );
+            }
             return (
               <button
                 key={t.id}

@@ -18,6 +18,14 @@ export function checkDashboardAccess(
 
   const normalized = pathname.toLowerCase();
 
+  // /admin/audit-logs viewer (owner only)
+  if (normalized === '/admin/audit-logs' || normalized.startsWith('/admin/audit-logs/')) {
+    if (role === 'owner') {
+      return { allowed: true, redirectUrl: '' };
+    }
+    return { allowed: false, redirectUrl: '/admin' };
+  }
+
   // /admin dashboard (owner, manager)
   if (normalized === '/admin' || normalized.startsWith('/admin/')) {
     if (role === 'owner' || role === 'manager') {

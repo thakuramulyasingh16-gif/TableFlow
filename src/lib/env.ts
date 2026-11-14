@@ -37,6 +37,9 @@ const envSchema = z.object({
 
   RESEND_API_KEY: z.string().optional().default(''),
   RESEND_FROM: z.string().default('TableFlow Receipts <onboarding@resend.dev>'),
+
+  SENTRY_DSN: z.string().optional().default(''),
+  NEXT_PUBLIC_SENTRY_DSN: z.string().optional().default(''),
 });
 
 export type AppEnv = Readonly<
