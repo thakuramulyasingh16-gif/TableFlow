@@ -230,7 +230,13 @@ export const acknowledgeAlertSchema = z
   .object({
     quantity: z.number().positive().max(100000),
     unit: ingredientUnitEnum,
-    totalCostRupees: z.number().positive().max(10000000),
+    totalCostRupees: z
+      .number()
+      .positive()
+      .max(10000000)
+      .refine((val) => Math.round(val * 100) >= 1, {
+        message: 'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+      }),
     supplier: z.string().trim().max(190).optional(),
     notes: z.string().trim().max(500).optional(),
     purchasedAt: z.string().datetime().optional(),
@@ -242,7 +248,13 @@ export const createPurchaseSchema = z
     ingredientId: z.number().int().positive(),
     quantity: z.number().positive().max(100000),
     unit: ingredientUnitEnum,
-    totalCostRupees: z.number().positive().max(10000000),
+    totalCostRupees: z
+      .number()
+      .positive()
+      .max(10000000)
+      .refine((val) => Math.round(val * 100) >= 1, {
+        message: 'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+      }),
     supplier: z.string().trim().max(190).optional(),
     notes: z.string().trim().max(500).optional(),
     purchasedAt: z.string().datetime().optional(),
@@ -254,7 +266,14 @@ export const editPurchaseSchema = z
   .object({
     quantity: z.number().positive().max(100000).optional(),
     unit: ingredientUnitEnum.optional(),
-    totalCostRupees: z.number().positive().max(10000000).optional(),
+    totalCostRupees: z
+      .number()
+      .positive()
+      .max(10000000)
+      .refine((val) => Math.round(val * 100) >= 1, {
+        message: 'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+      })
+      .optional(),
     supplier: z.string().trim().max(190).optional().nullable(),
     notes: z.string().trim().max(500).optional().nullable(),
     reason: z.string().trim().min(3, 'Reason is required for editing a purchase').max(255),

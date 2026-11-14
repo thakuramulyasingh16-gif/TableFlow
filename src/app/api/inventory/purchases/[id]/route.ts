@@ -33,8 +33,15 @@ export const PATCH = withStaffAuth<{ id: string }>(['manager', 'owner'], async (
       updates.unit = body.unit;
     }
     if (body.totalCostRupees !== undefined) {
+      // API accepts totalCostRupees (e.g. ₹120.50) but strictly converts and stores integer paise (12050 paise)
       const paise = Math.round(body.totalCostRupees * 100);
-      if (paise <= 0) throw new AppError(400, 'Total cost must be greater than zero.', 'INVALID_AMOUNT');
+      if (paise <= 0) {
+        throw new AppError(
+          400,
+          'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+          'INVALID_AMOUNT'
+        );
+      }
       updates.totalCost = paise;
     }
     if (body.supplier !== undefined) {

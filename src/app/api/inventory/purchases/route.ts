@@ -126,9 +126,15 @@ export const POST = withStaffAuth(['manager', 'owner'], async (req, { actor: sta
       throw new AppError(404, 'Ingredient not found', 'NOT_FOUND');
     }
 
+    // API accepts totalCostRupees (e.g. ₹120.50) but strictly converts and stores integer paise (12050 paise)
+    // in the database. Amounts that round to 0 paise are rejected.
     const totalCostPaise = Math.round(body.totalCostRupees * 100);
     if (totalCostPaise <= 0) {
-      throw new AppError(400, 'Total amount must be greater than zero.', 'INVALID_AMOUNT');
+      throw new AppError(
+        400,
+        'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+        'INVALID_AMOUNT'
+      );
     }
 
     const purchasedAtDate = body.purchasedAt ? new Date(body.purchasedAt) : new Date();

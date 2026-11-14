@@ -36,10 +36,14 @@ export const POST = withStaffAuth<{ id: string }>(['manager', 'owner'], async (r
       });
     }
 
-    // Convert rupees to integer paise
+    // Convert rupees to integer paise; reject amounts rounding to 0 paise
     const totalCostPaise = Math.round(body.totalCostRupees * 100);
     if (totalCostPaise <= 0) {
-      throw new AppError(400, 'Total cost must be greater than zero.', 'INVALID_AMOUNT');
+      throw new AppError(
+        400,
+        'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+        'INVALID_AMOUNT'
+      );
     }
 
     const purchasedAtDate = body.purchasedAt ? new Date(body.purchasedAt) : new Date();

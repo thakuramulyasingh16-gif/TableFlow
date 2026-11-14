@@ -288,6 +288,10 @@ model Deal {
   startsAt             DateTime?    @map("starts_at")
   endsAt               DateTime?    @map("ends_at")
   isActive             Boolean      @default(true) @map("is_active")
+  maxRedemptions       Int?         @map("max_redemptions")
+  perSessionLimit      Int          @default(1) @map("per_session_limit")
+  perTableLimit        Int?         @map("per_table_limit")
+  isOneTime            Boolean      @default(false) @map("is_one_time")
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
 

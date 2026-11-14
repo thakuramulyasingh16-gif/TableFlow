@@ -44,6 +44,12 @@ export async function POST(req: NextRequest) {
     const itemIds = [...new Set(body.items.map((i) => i.menuItemId))];
     const variantIds = [...new Set(body.items.map((i) => i.variantId).filter((v): v is number => v != null))];
 
+    // Abuse control: Enforce max 30 items per order
+    const totalItemsCount = body.items.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalItemsCount > 30) {
+      throw new AppError(400, 'Orders are limited to a maximum of 30 items per order.', 'MAX_ITEMS_EXCEEDED');
+    }
+
     const [menuItems, variants, deal] = await Promise.all([
       prisma.menuItem.findMany({
         where: { id: { in: itemIds }, archivedAt: null },
@@ -93,9 +99,77 @@ export async function POST(req: NextRequest) {
       tipPaise: 0,
     });
 
+    // Abuse control: Enforce max order value without prior staff verification
+    const MAX_ORDER_VALUE_PAISE = 2000000; // ₹20,000 maximum per unverified guest order
+    if (pricing.totalPaise > MAX_ORDER_VALUE_PAISE) {
+      throw new AppError(
+        400,
+        'Order value exceeds ₹20,000 limit. Please speak to your waiter to place banquet orders.',
+        'MAX_ORDER_VALUE_EXCEEDED'
+      );
+    }
+
     const sanitizedNotes = body.notes ? sanitizeUserText(body.notes, 500) : null;
 
     const order = await prisma.$transaction(async (tx) => {
+      // Abuse control: Enforce max 5 open orders per session
+      const openOrdersCount = await tx.order.count({
+        where: {
+          tableSessionId: session.id,
+          status: { in: ['received', 'confirmed', 'preparing', 'ready'] },
+        },
+      });
+      if (openOrdersCount >= 5) {
+        throw new AppError(
+          429,
+          'Your table has 5 active orders in progress. Please wait for current orders to be served before placing more.',
+          'MAX_OPEN_ORDERS_EXCEEDED'
+        );
+      }
+
+      // Abuse control: Atomic deal redemption validation
+      if (deal) {
+        // 1. One-time code check
+        if (deal.isOneTime) {
+          const existingCount = await tx.order.count({
+            where: { dealId: deal.id, status: { not: 'cancelled' } },
+          });
+          if (existingCount >= 1) {
+            throw new AppError(400, 'This promo code is single-use and has already been redeemed.', 'DEAL_ALREADY_REDEEMED');
+          }
+        }
+
+        // 2. Global maxRedemptions
+        if (deal.maxRedemptions != null) {
+          const totalRedemptions = await tx.order.count({
+            where: { dealId: deal.id, status: { not: 'cancelled' } },
+          });
+          if (totalRedemptions >= deal.maxRedemptions) {
+            throw new AppError(400, 'This promo code has reached its maximum total redemptions.', 'DEAL_EXHAUSTED');
+          }
+        }
+
+        // 3. Per-session limit
+        if (deal.perSessionLimit != null) {
+          const sessionRedemptions = await tx.order.count({
+            where: { dealId: deal.id, tableSessionId: session.id, status: { not: 'cancelled' } },
+          });
+          if (sessionRedemptions >= deal.perSessionLimit) {
+            throw new AppError(400, 'You have reached the redemption limit for this deal in this session.', 'DEAL_SESSION_LIMIT_EXCEEDED');
+          }
+        }
+
+        // 4. Per-table limit
+        if (deal.perTableLimit != null) {
+          const tableRedemptions = await tx.order.count({
+            where: { dealId: deal.id, tableId: table.id, status: { not: 'cancelled' } },
+          });
+          if (tableRedemptions >= deal.perTableLimit) {
+            throw new AppError(400, 'This deal has reached the maximum allowed redemptions for this table.', 'DEAL_TABLE_LIMIT_EXCEEDED');
+          }
+        }
+      }
+
       const created = await tx.order.create({
         data: {
           orderNumber: generateOrderNumber(),

@@ -72,6 +72,10 @@ test('calculateOrderPricing computes variants, deals, CGST, SGST, and total serv
     startsAt: null,
     endsAt: null,
     isActive: true,
+    maxRedemptions: null,
+    perSessionLimit: 1,
+    perTableLimit: null,
+    isOneTime: false,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
