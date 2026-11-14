@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { AppError, handleApiError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
 import { requireStaffAuth, withStaffAuth } from '@/lib/auth-guard';
@@ -83,6 +84,12 @@ export const POST = withStaffAuth(['manager', 'owner'], async (req, { actor: sta
       name: body.name,
       unit: body.unit,
       stockStatus: body.stockStatus || 'IN_STOCK',
+      currentStock:
+        body.currentStock != null ? new Prisma.Decimal(body.currentStock) : new Prisma.Decimal(0),
+      lowStockThreshold:
+        body.lowStockThreshold != null
+          ? new Prisma.Decimal(body.lowStockThreshold)
+          : new Prisma.Decimal(0),
       notes: body.notes ? sanitizeUserText(body.notes, 500) : null,
     },
   });

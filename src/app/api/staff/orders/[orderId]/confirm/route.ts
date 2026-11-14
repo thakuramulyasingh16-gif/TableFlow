@@ -5,6 +5,7 @@ import { withStaffAuth } from '@/lib/auth-guard';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/rate-limit';
 import { broadcastRealtime } from '@/lib/realtime';
+import { deductInventoryForConfirmedOrder } from '@/lib/inventory/deduction';
 
 export const POST = withStaffAuth<{ orderId: string }>(['waiter', 'manager', 'owner'], async (req, { params, actor }) => {
   const { orderId } = await params;
@@ -15,27 +16,34 @@ export const POST = withStaffAuth<{ orderId: string }>(['waiter', 'manager', 'ow
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: {
-      table: { select: { id: true, tableNumber: true, label: true, zone: true } },
-      items: { include: { station: { select: { id: true, name: true, code: true } } } },
-    },
   });
   if (!order) throw new AppError(404, 'Order not found.', 'ORDER_NOT_FOUND');
   if (order.status !== 'received') {
     throw new AppError(409, `Order cannot be confirmed from "${order.status}".`, 'INVALID_ORDER_STATE');
   }
 
-  const updated = await prisma.order.update({
-    where: { id },
-    data: {
-      status: 'confirmed',
-      confirmedById: actor.id,
-      confirmedAt: new Date(),
-    },
-    include: {
-      table: { select: { id: true, tableNumber: true, label: true, zone: true } },
-      items: { include: { station: { select: { id: true, name: true, code: true } } } },
-    },
+  const { updated, deductions } = await prisma.$transaction(async (tx) => {
+    const updated = await tx.order.update({
+      where: { id },
+      data: {
+        status: 'confirmed',
+        confirmedById: actor.id,
+        confirmedAt: new Date(),
+      },
+      include: {
+        table: { select: { id: true, tableNumber: true, label: true, zone: true } },
+        items: { include: { station: { select: { id: true, name: true, code: true } } } },
+      },
+    });
+
+    const deductions = await deductInventoryForConfirmedOrder({
+      orderId: id,
+      actorUserId: actor.id,
+      actorRole: actor.role,
+      tx,
+    });
+
+    return { updated, deductions };
   });
 
   await recordAuditLog({
@@ -46,15 +54,23 @@ export const POST = withStaffAuth<{ orderId: string }>(['waiter', 'manager', 'ow
     entityId: updated.id,
     ipAddress: getClientIp(req),
     userAgent: req.headers.get('user-agent'),
-    metadata: { orderNumber: updated.orderNumber },
+    metadata: {
+      orderNumber: updated.orderNumber,
+      inventoryDeductionsCount: deductions.length,
+    },
   });
 
   await Promise.all([
     broadcastRealtime('kitchen:updates', 'order:confirmed', { orderId: updated.id }),
     broadcastRealtime('staff:updates', 'order:updated', { orderId: updated.id }),
     broadcastRealtime(`table_session:${updated.tableSessionId}`, 'order:updated', { orderId: updated.id }),
+    ...(deductions.some((d) => d.alertRaised || d.statusChangedToOutOfStock)
+      ? [
+          broadcastRealtime('staff:updates', 'inventory:alert', { orderId: updated.id, deductions }),
+          broadcastRealtime('chef:updates', 'inventory:alert', { orderId: updated.id, deductions }),
+        ]
+      : []),
   ]);
 
-  return NextResponse.json({ order: updated });
+  return NextResponse.json({ order: updated, deductions });
 });
-

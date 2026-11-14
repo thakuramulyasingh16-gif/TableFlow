@@ -286,6 +286,8 @@ export const createIngredientSchema = z
     unit: ingredientUnitEnum,
     notes: z.string().trim().max(500).optional(),
     stockStatus: stockStatusEnum.optional(),
+    currentStock: z.number().min(0).max(100000).optional().nullable(),
+    lowStockThreshold: z.number().min(0).max(100000).optional().nullable(),
   })
   .strict();
 
@@ -334,6 +336,13 @@ export const recordCounterPaymentSchema = z
   })
   .strict();
 
+export const confirmUpiPaymentSchema = z
+  .object({
+    paymentId: z.number().int().positive(),
+    transactionReference: z.string().trim().max(100).optional().nullable(),
+  })
+  .strict();
+
 export const updateRestaurantSettingsSchema = z
   .object({
     restaurantName: z.string().trim().min(1).max(120).optional(),
@@ -364,12 +373,4 @@ export const updateRestaurantSettingsSchema = z
     upiId: z.string().trim().max(100).optional().nullable(),
   })
   .strict();
-
-export const confirmUpiPaymentSchema = z
-  .object({
-    paymentId: z.number().int().positive(),
-    transactionReference: z.string().trim().max(100).optional().nullable(),
-  })
-  .strict();
-
 
