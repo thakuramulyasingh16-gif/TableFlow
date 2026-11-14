@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import {
+  Banknote,
   BellRing,
   Check,
   CheckCircle2,
@@ -17,7 +18,7 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
-import { Badge, Button, Card, Skeleton, Toast } from '@/components/ui';
+import { Badge, Button, Card, Modal, Skeleton, Toast } from '@/components/ui';
 
 interface FloorTable {
   id: number;
@@ -101,6 +102,12 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
 
+  const [payingTable, setPayingTable] = useState<FloorTable | null>(null);
+  const [collectAmountRupees, setCollectAmountRupees] = useState('');
+  const [collectMethod, setCollectMethod] = useState<'cash' | 'counter_upi' | 'counter_card'>('cash');
+  const [collectReference, setCollectReference] = useState('');
+  const [collectSubmitting, setCollectSubmitting] = useState(false);
+
   const loadAll = useCallback(async () => {
     try {
       const [floorRes, ordersRes, callsRes] = await Promise.all([
@@ -170,6 +177,49 @@ export default function StaffPage() {
   async function resetTableFree(tableId: number) {
     await apiFetch(`/api/staff/tables/${tableId}/status`, { method: 'PATCH', body: { status: 'free' } });
     await loadAll();
+  }
+
+  function openCollectModal(t: FloorTable) {
+    setPayingTable(t);
+    // Find total from table's orders if possible, or prefill empty
+    const tableOrders = orders.filter((o) => o.table?.id === t.id);
+    const sumPaise = tableOrders.reduce((sum, o) => sum + o.totalPaise, 0);
+    setCollectAmountRupees(sumPaise > 0 ? (sumPaise / 100).toFixed(2) : '');
+    setCollectMethod('cash');
+    setCollectReference('');
+  }
+
+  async function handleRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!payingTable?.activeSessionId) return;
+
+    const rupees = parseFloat(collectAmountRupees);
+    if (isNaN(rupees) || rupees <= 0) {
+      setToast('Please enter a valid amount');
+      return;
+    }
+
+    setCollectSubmitting(true);
+    try {
+      await apiFetch('/api/staff/payments/record', {
+        method: 'POST',
+        body: {
+          tableSessionId: payingTable.activeSessionId,
+          amountPaise: Math.round(rupees * 100),
+          method: collectMethod,
+          paymentReference: collectReference.trim() || null,
+        },
+      });
+      setToast(`Payment recorded for ${payingTable.label}! Session closed.`);
+      setPayingTable(null);
+      setCollectAmountRupees('');
+      setCollectReference('');
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to record payment');
+    } finally {
+      setCollectSubmitting(false);
+    }
   }
 
   if (status === 'loading') {
@@ -297,11 +347,31 @@ export default function StaffPage() {
                         </span>
                       )}
                     </div>
-                    {t.status !== 'free' && t.activeOrderCount === 0 && (
+                    {t.status !== 'free' && t.activeSessionId ? (
+                      <div className="flex gap-1.5 pt-1">
+                        <Button
+                          variant="sun"
+                          fullWidth
+                          onClick={() => openCollectModal(t)}
+                          className="flex items-center justify-center gap-1 text-[12px] py-1.5"
+                        >
+                          <Banknote className="w-3.5 h-3.5" /> Collect Bill
+                        </Button>
+                        {t.activeOrderCount === 0 && (
+                          <Button
+                            variant="mint"
+                            onClick={() => void resetTableFree(t.id)}
+                            className="text-[12px] py-1.5 px-2.5"
+                          >
+                            Free
+                          </Button>
+                        )}
+                      </div>
+                    ) : t.status !== 'free' && t.activeOrderCount === 0 ? (
                       <Button variant="mint" fullWidth onClick={() => void resetTableFree(t.id)}>
                         Mark Free
                       </Button>
-                    )}
+                    ) : null}
                   </Card>
                 );
               })}
@@ -361,6 +431,89 @@ export default function StaffPage() {
           )}
         </section>
       </main>
+
+      {/* Counter / Cash Payment Modal */}
+      {payingTable && (
+        <Modal
+          open={true}
+          onClose={() => setPayingTable(null)}
+          title={`Collect Bill — ${payingTable.label}`}
+        >
+          <form onSubmit={handleRecordPayment} className="space-y-4">
+            <div>
+              <p className="text-xs text-muted mb-1">
+                Record an offline counter payment (Cash, external UPI or Card) to settle this table&apos;s bill.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="collect-amount" className="block text-xs font-bold text-ink mb-1">
+                Amount to Collect (₹)
+              </label>
+              <input
+                id="collect-amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                value={collectAmountRupees}
+                onChange={(e) => setCollectAmountRupees(e.target.value)}
+                placeholder="0.00"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[15px] font-bold"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="collect-method" className="block text-xs font-bold text-ink mb-1">
+                Payment Method
+              </label>
+              <select
+                id="collect-method"
+                value={collectMethod}
+                onChange={(e) => setCollectMethod(e.target.value as 'cash' | 'counter_upi' | 'counter_card')}
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px] font-semibold"
+              >
+                <option value="cash">Cash Payment</option>
+                <option value="counter_upi">External UPI (GPay / PhonePe / Paytm)</option>
+                <option value="counter_card">Card Machine (POS EDC)</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="collect-ref" className="block text-xs font-bold text-ink mb-1">
+                Reference / Notes (optional)
+              </label>
+              <input
+                id="collect-ref"
+                type="text"
+                value={collectReference}
+                onChange={(e) => setCollectReference(e.target.value)}
+                placeholder="e.g. UPI UTR number or POS slip reference"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[13px]"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setPayingTable(null)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="leaf"
+                disabled={collectSubmitting}
+                className="flex-1 font-bold"
+              >
+                {collectSubmitting ? 'Recording...' : 'Collect & Clear Table'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

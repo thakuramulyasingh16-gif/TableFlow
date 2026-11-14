@@ -146,6 +146,7 @@ model User {
   resolvedStockAlerts StockAlert[] @relation("ResolvedByStaff")
   stockEvents     StockEvent[]
   auditLogs       AuditLog[]
+  recordedPayments Payment[] @relation("RecordedPayments")
 
   @@index([roleId], map: "idx_users_role_id")
   @@map("users")
@@ -419,11 +420,14 @@ model Payment {
   receiptEmail      String?       @map("receipt_email") @db.VarChar(190)
   receiptSentAt     DateTime?     @map("receipt_sent_at")
   webhookEventId    String?       @unique @map("webhook_event_id") @db.VarChar(100)
+  paymentReference  String?       @map("payment_reference") @db.VarChar(100)
+  recordedById      Int?          @map("recorded_by")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
 
   tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
   billSplit    BillSplit?   @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
+  recordedBy   User?        @relation("RecordedPayments", fields: [recordedById], references: [id], onDelete: SetNull)
 
   @@index([tableSessionId, status], map: "idx_payments_session_status")
   @@index([createdAt], map: "idx_payments_created_at")

@@ -124,6 +124,18 @@ export async function GET(req: NextRequest) {
       ORDER BY day ASC
     `;
 
+    // 5b. Payment Method Breakdown (Cash vs Counter UPI vs Online)
+    const paymentMethodsRaw: { method: string; total_amount: bigint; payment_count: bigint }[] = await prisma.$queryRaw`
+      SELECT
+        COALESCE(method, 'online') AS method,
+        SUM(amount_paise) AS total_amount,
+        COUNT(id) AS payment_count
+      FROM payments
+      WHERE status = 'captured' AND created_at >= ${start} AND created_at <= ${end}
+      GROUP BY COALESCE(method, 'online')
+      ORDER BY total_amount DESC
+    `;
+
     // Build timeline map for spend vs sales over time
     const dayMap = new Map<string, { date: string; spendPaise: number; salesPaise: number; estimatedProfitPaise: number }>();
 
@@ -191,6 +203,12 @@ export async function GET(req: NextRequest) {
         paidOrderCount,
       },
       topIngredients,
+      paymentMethods: paymentMethodsRaw.map((pm) => ({
+        method: pm.method,
+        totalPaise: Number(pm.total_amount),
+        totalRupees: Number(pm.total_amount) / 100,
+        count: Number(pm.payment_count),
+      })),
       timeline: timeline.map((t) => ({
         ...t,
         spendRupees: t.spendPaise / 100,

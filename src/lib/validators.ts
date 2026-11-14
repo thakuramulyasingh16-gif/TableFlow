@@ -324,6 +324,16 @@ export const bulkDeleteDishesSchema = z
   })
   .strict();
 
+export const recordCounterPaymentSchema = z
+  .object({
+    tableSessionId: z.number().int().positive(),
+    amountPaise: z.number().int().positive().max(100000000),
+    method: z.enum(['cash', 'counter_upi', 'counter_card', 'other']),
+    paymentReference: z.string().trim().max(100).optional().nullable(),
+    tipPaise: z.number().int().min(0).max(500000).default(0),
+  })
+  .strict();
+
 export const updateRestaurantSettingsSchema = z
   .object({
     restaurantName: z.string().trim().min(1).max(120).optional(),
