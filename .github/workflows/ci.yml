@@ -10,6 +10,31 @@ jobs:
   verify:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tableflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tableflow
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/tableflow
+      AUTH_SECRET: replace_with_ci_auth_secret_32_chars_min
+      GUEST_COOKIE_SECRET: replace_with_ci_guest_secret_32_chars_min
+      CORS_ORIGIN: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      PAYMENTS_MOCK: "true"
+      NODE_ENV: test
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,6 +54,9 @@ jobs:
       - name: Prisma generate
         run: npx prisma generate
 
+      - name: Prisma migrate deploy
+        run: npx prisma migrate deploy
+
       - name: TypeScript typecheck
         run: npm run typecheck
 
@@ -39,11 +67,4 @@ jobs:
         run: npm test
 
       - name: Production build check
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
-          AUTH_SECRET: replace_with_ci_auth_secret_32_chars_min
-          GUEST_COOKIE_SECRET: replace_with_ci_guest_secret_32_chars_min
-          CORS_ORIGIN: http://localhost:3000
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
         run: npm run build
