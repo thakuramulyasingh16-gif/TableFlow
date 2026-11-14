@@ -182,6 +182,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           ipAddress: ip,
         });
 
+        const isPrivileged = user.role.name === 'owner' || user.role.name === 'manager';
+        const isMfaEnrolled = user.mfaEnabled && Boolean(user.mfaSecret);
+        const mfaSetupRequired = isPrivileged && !isMfaEnrolled;
+
         return {
           id: String(user.id),
           name: user.name,
@@ -189,17 +193,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           role: user.role.name,
           tokenVersion: user.tokenVersion,
           mustChangePassword: user.mustChangePassword,
+          mfaSetupRequired,
         };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.userId = Number(user.id);
         token.role = (user as { role: string }).role;
         token.tokenVersion = (user as { tokenVersion: number }).tokenVersion;
         token.mustChangePassword = (user as { mustChangePassword?: boolean }).mustChangePassword;
+        token.mfaSetupRequired = (user as { mfaSetupRequired?: boolean }).mfaSetupRequired ?? false;
+      }
+      if (trigger === 'update' && session?.user) {
+        const updateData = session.user as { mfaSetupRequired?: boolean; mustChangePassword?: boolean };
+        if (updateData.mfaSetupRequired !== undefined) {
+          token.mfaSetupRequired = updateData.mfaSetupRequired;
+        }
+        if (updateData.mustChangePassword !== undefined) {
+          token.mustChangePassword = updateData.mustChangePassword;
+        }
       }
       return token;
     },
@@ -209,6 +224,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as { role?: string }).role = token.role as string;
         (session.user as { tokenVersion?: number }).tokenVersion = token.tokenVersion as number;
         (session.user as { mustChangePassword?: boolean }).mustChangePassword = token.mustChangePassword as boolean;
+        (session.user as { mfaSetupRequired?: boolean }).mfaSetupRequired = token.mfaSetupRequired as boolean;
       }
       return session;
     },
