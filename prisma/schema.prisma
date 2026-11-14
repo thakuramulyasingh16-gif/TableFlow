@@ -167,6 +167,7 @@ model Table {
   orders      Order[]
   waiterCalls WaiterCall[]
   reviews     Review[]
+  invoices    Invoice[]
 
   @@index([status], map: "idx_tables_status")
   @@map("tables")
@@ -192,6 +193,7 @@ model TableSession {
   billSplits  BillSplit[]
   payments    Payment[]
   review      Review?
+  invoice     Invoice?
 
   @@index([tableId, status], map: "idx_table_sessions_table_status")
   @@index([expiresAt], map: "idx_table_sessions_expires_at")
@@ -567,5 +569,71 @@ model StockEvent {
   @@index([ingredientId, createdAt], map: "idx_stock_events_ingredient_created")
   @@index([changedById], map: "idx_stock_events_changed_by")
   @@map("stock_events")
+}
+
+model RestaurantSettings {
+  id              Int      @id @default(autoincrement())
+  restaurantName  String   @default("TableFlow Bistro") @map("restaurant_name") @db.VarChar(120)
+  legalName       String   @default("TableFlow Hospitality Private Limited") @map("legal_name") @db.VarChar(190)
+  address         String   @default("Plot 42, Sector 18, Gurugram, Haryana - 122002") @db.VarChar(255)
+  phone           String?  @default("+91 98765 43210") @db.VarChar(20)
+  email           String?  @default("billing@tableflow.in") @db.VarChar(190)
+  gstin           String   @default("06AAACT2727Q1ZB") @db.VarChar(20)
+  fssaiNumber     String   @default("10822005000123") @map("fssai_number") @db.VarChar(20)
+  stateCode       String   @default("06") @map("state_code") @db.VarChar(10)
+  stateName       String   @default("Haryana") @map("state_name") @db.VarChar(60)
+  hsnSacCode      String   @default("996331") @map("hsn_sac_code") @db.VarChar(20)
+  cgstBps         Int      @default(250) @map("cgst_bps")
+  sgstBps         Int      @default(250) @map("sgst_bps")
+  paymentProvider String   @default("razorpay") @map("payment_provider") @db.VarChar(40)
+  upiId           String?  @map("upi_id") @db.VarChar(100)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("restaurant_settings")
+}
+
+model InvoiceSequence {
+  id            Int      @id @default(autoincrement())
+  financialYear String   @unique @map("financial_year") @db.VarChar(10)
+  lastNumber    Int      @default(0) @map("last_number")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("invoice_sequences")
+}
+
+model Invoice {
+  id             Int      @id @default(autoincrement())
+  invoiceNumber  String   @unique @map("invoice_number") @db.VarChar(32)
+  financialYear  String   @map("financial_year") @db.VarChar(10)
+  sequenceNumber Int      @map("sequence_number")
+  tableSessionId Int      @unique @map("table_session_id")
+  tableId        Int      @map("table_id")
+  subtotalPaise  Int      @map("subtotal_paise")
+  discountPaise  Int      @default(0) @map("discount_paise")
+  cgstPaise      Int      @map("cgst_paise")
+  sgstPaise      Int      @map("sgst_paise")
+  cgstBps        Int      @map("cgst_bps")
+  sgstBps        Int      @map("sgst_bps")
+  tipPaise       Int      @default(0) @map("tip_paise")
+  totalPaise     Int      @map("total_paise")
+  legalName      String   @map("legal_name") @db.VarChar(190)
+  tradeName      String   @map("trade_name") @db.VarChar(120)
+  gstin          String   @db.VarChar(20)
+  fssaiNumber    String   @map("fssai_number") @db.VarChar(20)
+  address        String   @db.VarChar(255)
+  stateCode      String   @map("state_code") @db.VarChar(10)
+  stateName      String   @map("state_name") @db.VarChar(60)
+  hsnSacCode     String   @map("hsn_sac_code") @db.VarChar(20)
+  customerEmail  String?  @map("customer_email") @db.VarChar(190)
+  customerPhone  String?  @map("customer_phone") @db.VarChar(20)
+  customerGstin  String?  @map("customer_gstin") @db.VarChar(20)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tableSession TableSession @relation(fields: [tableSessionId], references: [id], onDelete: Restrict)
+  table        Table        @relation(fields: [tableId], references: [id], onDelete: Restrict)
+
+  @@index([financialYear, sequenceNumber], map: "idx_invoices_fy_seq")
+  @@map("invoices")
 }
 

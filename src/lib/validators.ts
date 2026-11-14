@@ -324,3 +324,34 @@ export const bulkDeleteDishesSchema = z
   })
   .strict();
 
+export const updateRestaurantSettingsSchema = z
+  .object({
+    restaurantName: z.string().trim().min(1).max(120).optional(),
+    legalName: z.string().trim().min(1).max(190).optional(),
+    address: z.string().trim().min(1).max(255).optional(),
+    phone: z.string().trim().max(20).optional().nullable(),
+    email: z.string().trim().email().max(190).optional().nullable(),
+    gstin: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, 'Invalid Indian GSTIN format')
+      .optional(),
+    fssaiNumber: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{14}$/, 'FSSAI number must be exactly 14 digits')
+      .optional(),
+    stateCode: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{2}$/, 'State code must be 2 digits')
+      .optional(),
+    stateName: z.string().trim().min(1).max(60).optional(),
+    hsnSacCode: z.string().trim().min(4).max(10).optional(),
+    cgstBps: z.number().int().min(0).max(1400).optional(),
+    sgstBps: z.number().int().min(0).max(1400).optional(),
+    paymentProvider: z.enum(['razorpay', 'upi_qr']).optional(),
+    upiId: z.string().trim().max(100).optional().nullable(),
+  })
+  .strict();
+

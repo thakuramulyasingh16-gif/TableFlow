@@ -10,6 +10,7 @@ import { prisma } from '@/lib/prisma';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
 import { broadcastRealtime } from '@/lib/realtime';
 import { sanitizeUserText } from '@/lib/sanitize';
+import { getRestaurantSettings } from '@/lib/settings';
 import { createGuestOrderSchema, parseJsonBody } from '@/lib/validators';
 
 function generateOrderNumber(): string {
@@ -89,13 +90,14 @@ export async function POST(req: NextRequest) {
     const menuItemsMap = new Map(menuItems.map((m) => [m.id, m]));
     const variantsMap = new Map(variants.map((v) => [v.id, v]));
 
+    const settings = await getRestaurantSettings();
     const pricing = calculateOrderPricing({
       requestedItems: body.items,
       menuItemsMap,
       variantsMap,
       deal,
-      cgstBps: env.CGST_BPS,
-      sgstBps: env.SGST_BPS,
+      cgstBps: settings.cgstBps ?? env.CGST_BPS,
+      sgstBps: settings.sgstBps ?? env.SGST_BPS,
       tipPaise: 0,
     });
 

@@ -1137,13 +1137,30 @@ export function GuestDiningClient({
 
               {hasCapturedPayment && (
                 <div className="space-y-4">
-                  <Card className="p-5 bg-mint-bg space-y-2">
+                  <Card className="p-5 bg-mint-bg space-y-3">
                     <div className="flex items-center gap-2 text-leaf font-extrabold text-[17px]">
                       <CheckCircle2 className="w-5 h-5" /> Payment Complete!
                     </div>
                     <p className="text-[13px] text-ink">
-                      Thank you for dining with {restaurantName}. Get your GST invoice or leave a quick rating below.
+                      Thank you for dining with {restaurantName}. Get your official India GST tax invoice or leave a quick rating below.
                     </p>
+                    <Button
+                      type="button"
+                      variant="leaf"
+                      className="w-full flex items-center justify-center gap-2"
+                      onClick={async () => {
+                        try {
+                          const res = await apiFetch<{ invoice: { invoiceNumber: string } }>('/api/guest/invoice');
+                          if (res.invoice?.invoiceNumber) {
+                            window.open(`/invoice/${encodeURIComponent(res.invoice.invoiceNumber)}`, '_blank');
+                          }
+                        } catch (err) {
+                          setToast(err instanceof Error ? err.message : 'Unable to generate GST invoice');
+                        }
+                      }}
+                    >
+                      <Receipt className="w-4 h-4" /> View & Print GST Tax Invoice
+                    </Button>
                   </Card>
 
                   <Card className="p-5 space-y-3">
