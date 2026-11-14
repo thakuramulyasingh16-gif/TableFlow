@@ -22,6 +22,7 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
+import { Locale, getTranslations } from '@/lib/i18n';
 import {
   Badge,
   Button,
@@ -205,6 +206,25 @@ export function GuestDiningClient({
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const [pinError, setPinError] = useState('');
   const [billRequested, setBillRequested] = useState(false);
+  const [locale, setLocale] = useState<Locale>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('tableflow_guest_locale');
+      if (saved === 'hi' || saved === 'en') return saved;
+    }
+    return 'en';
+  });
+
+  const t = useMemo(() => getTranslations(locale), [locale]);
+
+  function toggleLocale() {
+    setLocale((prev) => {
+      const next = prev === 'en' ? 'hi' : 'en';
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('tableflow_guest_locale', next);
+      }
+      return next;
+    });
+  }
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -692,19 +712,29 @@ export function GuestDiningClient({
         <header className="bg-signature-gradient rounded-b-[28px] p-5 shadow-card space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[12px] font-bold text-leaf uppercase tracking-wider">Welcome to</p>
+              <p className="text-[12px] font-bold text-leaf uppercase tracking-wider">{t.brandTagline}</p>
               <h1 className="text-[24px] font-extrabold text-ink leading-tight">{restaurantName}</h1>
               <p className="text-[12px] font-medium text-muted mt-0.5">{table?.zone}</p>
             </div>
-            <span className="px-3.5 py-2 rounded-full bg-ink text-sun-soft text-[13px] font-extrabold shrink-0">
-              {table?.label}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                aria-label="Toggle language"
+                className="px-2.5 py-1.5 rounded-full bg-cream text-leaf hover:bg-mint transition text-[12px] font-extrabold border border-leaf/30 shadow-xs cursor-pointer"
+              >
+                {locale === 'en' ? 'हिंदी' : 'EN'}
+              </button>
+              <span className="px-3.5 py-2 rounded-full bg-ink text-sun-soft text-[13px] font-extrabold">
+                {table?.label}
+              </span>
+            </div>
           </div>
 
           {view === 'menu' && (
             <div className="relative">
               <label htmlFor="guest-menu-search" className="sr-only">
-                Search menu dishes
+                {t.searchPlaceholder}
               </label>
               <Search className="w-4 h-4 text-muted absolute left-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
               <input
@@ -712,7 +742,7 @@ export function GuestDiningClient({
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search paneer, biryani, coolers..."
+                placeholder={t.searchPlaceholder}
                 className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-[14px] bg-surface text-ink placeholder:text-muted text-[14px] shadow-sm border border-mint"
               />
             </div>
@@ -744,9 +774,19 @@ export function GuestDiningClient({
             >
               <ArrowLeft className="w-4 h-4" /> Menu
             </button>
-            <span className="px-3 py-1.5 rounded-full bg-ink text-sun-soft text-[12px] font-extrabold">
-              {table?.label} {latestOrder ? `· ${latestOrder.orderNumber}` : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                aria-label="Toggle language"
+                className="px-2.5 py-1.5 rounded-full bg-cream text-leaf hover:bg-mint transition text-[12px] font-extrabold border border-leaf/30 shadow-xs cursor-pointer"
+              >
+                {locale === 'en' ? 'हिंदी' : 'EN'}
+              </button>
+              <span className="px-3 py-1.5 rounded-full bg-ink text-sun-soft text-[12px] font-extrabold">
+                {table?.label} {latestOrder ? `· ${latestOrder.orderNumber}` : ''}
+              </span>
+            </div>
           </div>
           <div>
             <h1 className="text-[26px] font-extrabold text-ink leading-tight" aria-live="polite">
@@ -804,10 +844,10 @@ export function GuestDiningClient({
           {/* Category chips */}
           <section aria-label="Menu categories" className="flex gap-2 overflow-x-auto pb-1">
             <Chip active={selectedCategory === 'all'} onClick={() => setSelectedCategory('all')}>
-              All dishes
+              {t.allCategories}
             </Chip>
             <Chip active={vegOnly} onClick={() => setVegOnly((v) => !v)}>
-              Veg only
+              {t.vegOnly}
             </Chip>
             {categories.map((c) => (
               <Chip
@@ -899,7 +939,7 @@ export function GuestDiningClient({
                         {!item.isAvailable ? (
                           <div className="flex items-center gap-2">
                             <span className="px-2.5 py-1 rounded-full bg-tomato/15 text-tomato text-[12px] font-bold tracking-tight">
-                              Currently unavailable
+                              {t.soldOut}
                             </span>
                             <Button
                               variant="mint"
@@ -907,7 +947,7 @@ export function GuestDiningClient({
                               className="px-3 text-[13px] opacity-70 cursor-not-allowed"
                               aria-label={`${item.name} is currently unavailable`}
                             >
-                              Unavailable
+                              {t.soldOut}
                             </Button>
                           </div>
                         ) : (
@@ -917,7 +957,7 @@ export function GuestDiningClient({
                             className="px-4"
                             aria-label={`Add ${item.name} to order`}
                           >
-                            + Add
+                            + {t.add}
                           </Button>
                         )}
                       </div>
@@ -1143,7 +1183,7 @@ export function GuestDiningClient({
                     </div>
                   ) : (
                     <Button variant="leaf" fullWidth onClick={() => startPayment(null)}>
-                      Pay {formatInr(bill.remainingPaise + tipRupees * 100)} via Razorpay (UPI)
+                      {t.payBill} ({formatInr(bill.remainingPaise + tipRupees * 100)})
                     </Button>
                   )}
 
@@ -1153,7 +1193,7 @@ export function GuestDiningClient({
                     onClick={handleRequestPrintedBill}
                     disabled={billRequested}
                   >
-                    {billRequested ? 'Printed Bill Requested' : 'Ask Waiter for Printed Bill'}
+                    {billRequested ? t.billRequestedBadge : t.requestBill}
                   </Button>
                 </Card>
               )}
@@ -1301,7 +1341,7 @@ export function GuestDiningClient({
       )}
 
       {/* Cart & Checkout Sheet Modal */}
-      <Modal open={cartOpen} onClose={() => setCartOpen(false)} title="Your Order Cart" variant="sheet">
+      <Modal open={cartOpen} onClose={() => setCartOpen(false)} title={t.yourCart} variant="sheet">
         <div className="space-y-4">
           <div className="divide-y divide-mint">
             {cart.map((c, idx) => (
@@ -1359,7 +1399,7 @@ export function GuestDiningClient({
                 type="text"
                 value={orderNotes}
                 onChange={(e) => setOrderNotes(e.target.value)}
-                placeholder="e.g. Less spicy, nut allergy"
+                placeholder={t.specialInstructionsPlaceholder}
                 className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
               />
             </div>
@@ -1370,7 +1410,7 @@ export function GuestDiningClient({
           </div>
 
           <Button variant="leaf" fullWidth disabled={placingOrder} onClick={handlePlaceOrder}>
-            {placingOrder ? 'Sending to kitchen...' : `Place Order · Est. ${formatInr(cartEstSubtotal)} + GST`}
+            {placingOrder ? t.placingOrder : `${t.placeOrder} · Est. ${formatInr(cartEstSubtotal)} + GST`}
           </Button>
         </div>
       </Modal>
