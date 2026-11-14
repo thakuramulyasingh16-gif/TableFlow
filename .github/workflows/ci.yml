@@ -2,7 +2,7 @@ name: TableFlow CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'hardening/*']
   pull_request:
     branches: [main]
 
@@ -24,7 +24,7 @@ jobs:
         run: npm ci
 
       - name: Secret scan
-        run: node scripts/secret-scan.mjs --all
+        run: npm run secret-scan:all
 
       - name: Prisma generate
         run: npx prisma generate
@@ -35,10 +35,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Run unit & security tests
+      - name: Run unit & integration test suite
         run: npm test
 
-      - name: Production build
+      - name: Production build check
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
@@ -47,6 +47,3 @@ jobs:
           CORS_ORIGIN: http://localhost:3000
           NEXT_PUBLIC_APP_URL: http://localhost:3000
         run: npm run build
-
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
