@@ -6,7 +6,7 @@ import { recordAuditLog } from './lib/audit';
 import { getEnv } from './lib/env';
 import { prisma } from './lib/prisma';
 import { enforceRateLimit } from './lib/rate-limit';
-import { consumeRecoveryCode, verifyTotp } from './lib/totp';
+import { consumeRecoveryCode, decryptMfaSecret, verifyTotpWithReplay } from './lib/totp';
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MINUTES = 15;
@@ -135,7 +135,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
-          let mfaOk = verifyTotp(code, user.mfaSecret);
+          // Enforce separate per-user and per-IP rate limits on TOTP / recovery attempts
+          try {
+            await enforceRateLimit('mfa_verify_ip', ip);
+            await enforceRateLimit('mfa_verify_user', String(user.id));
+          } catch {
+            await recordAuditLog({
+              actorUserId: user.id,
+              actorRole: user.role.name,
+              action: 'LOGIN_MFA_RATE_LIMITED',
+              entityType: 'user',
+              entityId: user.id,
+              ipAddress: ip,
+            });
+            return null;
+          }
+
+          const plainSecret = decryptMfaSecret(user.mfaSecret);
+          const verifyResult = verifyTotpWithReplay(code, plainSecret, user.mfaLastTimeStep);
+          let mfaOk = verifyResult.valid;
+          const acceptedTimeStep = verifyResult.timeStep ?? null;
+
           if (!mfaOk && user.mfaRecoveryCodes) {
             const remaining = consumeRecoveryCode(code, user.mfaRecoveryCodes);
             if (remaining) {
@@ -165,6 +185,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               ipAddress: ip,
             });
             return null;
+          }
+
+          // Update replay protection tracker on successful TOTP authentication
+          if (acceptedTimeStep !== null) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { mfaLastTimeStep: acceptedTimeStep },
+            });
           }
         }
 

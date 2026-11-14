@@ -8,7 +8,7 @@ import { checkAllowedRole } from './rbac';
 
 export { checkAllowedRole };
 
-export type SessionResolver = () => Promise<any>;
+export type SessionResolver = () => Promise<unknown>;
 let sessionResolver: SessionResolver = () => auth();
 
 export function setSessionResolver(resolver: SessionResolver) {

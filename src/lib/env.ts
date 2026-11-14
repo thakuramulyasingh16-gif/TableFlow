@@ -18,6 +18,20 @@ const envSchema = z.object({
   AUTH_SECRET: z.string().min(32, 'AUTH_SECRET must be at least 32 characters'),
   GUEST_COOKIE_SECRET: z.string().min(32, 'GUEST_COOKIE_SECRET must be at least 32 characters'),
   GUEST_SESSION_TTL_MINUTES: z.coerce.number().int().positive().max(720).default(120),
+  MFA_ENCRYPTION_KEY: z
+    .string()
+    .optional()
+    .default('')
+    .refine((val) => {
+      if (process.env.NODE_ENV === 'production' && !val) return false;
+      if (!val) return true;
+      try {
+        const buf = Buffer.from(val, 'base64');
+        return buf.length === 32;
+      } catch {
+        return false;
+      }
+    }, 'MFA_ENCRYPTION_KEY must be a 32-byte base64-encoded key'),
 
   CGST_BPS: z.coerce.number().int().min(0).max(2800).default(250),
   SGST_BPS: z.coerce.number().int().min(0).max(2800).default(250),
@@ -67,6 +81,9 @@ export function loadEnv(rawEnv: Record<string, string | undefined> = process.env
     }
     if (!data.UPSTASH_REDIS_REST_URL || !data.UPSTASH_REDIS_REST_TOKEN) {
       throw new Error('Upstash Redis credentials are required in production');
+    }
+    if (!data.MFA_ENCRYPTION_KEY) {
+      throw new Error('MFA_ENCRYPTION_KEY is required in production');
     }
   }
 
