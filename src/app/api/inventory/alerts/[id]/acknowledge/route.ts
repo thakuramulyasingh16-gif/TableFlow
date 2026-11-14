@@ -1,20 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { syncAvailabilityForIngredient } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 import { broadcastRealtime } from '@/lib/realtime';
 import { sanitizeUserText } from '@/lib/sanitize';
 import { acknowledgeAlertSchema, parseJsonBody } from '@/lib/validators';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    const { id: rawId } = await params;
+export const POST = withStaffAuth<{ id: string }>(['manager', 'owner'], async (req, { params, actor: staff }) => {
+  const { id: rawId } = await params;
     const alertId = parseInt(rawId, 10);
     if (isNaN(alertId) || alertId <= 0) {
       throw new AppError(400, 'Invalid alert ID', 'INVALID_ID');
@@ -133,7 +128,4 @@ export async function POST(
       alert: result.updatedAlert,
       purchase: result.purchase,
     });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

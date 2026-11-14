@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { signIn, getSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -13,6 +13,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    // Establish tf_csrf cookie at login/session start
+    void fetch('/api/csrf', { credentials: 'include' }).catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,6 +34,9 @@ export default function LoginPage() {
         setError('Invalid credentials or account temporarily locked.');
         return;
       }
+
+      // Ensure fresh tf_csrf cookie is bound to session
+      await fetch('/api/csrf', { credentials: 'include' }).catch(() => {});
 
       const session = await getSession();
       const role = (session?.user as { role?: string } | undefined)?.role;

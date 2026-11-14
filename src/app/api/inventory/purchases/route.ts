@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AppError, handleApiError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { requireStaffAuth, withStaffAuth } from '@/lib/auth-guard';
 import { syncAvailabilityForIngredient } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
@@ -113,12 +113,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    await enforceRateLimit('purchase', `${getClientIp(req)}:${staff.id}`);
+export const POST = withStaffAuth(['manager', 'owner'], async (req, { actor: staff }) => {
+  await enforceRateLimit('purchase', `${getClientIp(req)}:${staff.id}`);
 
-    const body = await parseJsonBody(req, createPurchaseSchema);
+  const body = await parseJsonBody(req, createPurchaseSchema);
 
     const ingredient = await prisma.ingredient.findUnique({
       where: { id: body.ingredientId, archivedAt: null },
@@ -203,7 +201,4 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, purchase: result.purchase }, { status: 201 });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

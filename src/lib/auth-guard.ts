@@ -1,6 +1,8 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { RoleName } from '@prisma/client';
 import { auth } from '@/auth';
-import { AppError } from './api-error';
+import { AppError, handleApiError } from './api-error';
+import { requireCsrf } from './csrf';
 import { prisma } from './prisma';
 import { checkAllowedRole } from './rbac';
 
@@ -13,9 +15,45 @@ export interface AuthenticatedStaff {
   role: RoleName;
 }
 
+export type StaffRouteContext<P = Record<string, string | string[]>> = {
+  params: Promise<P>;
+  actor: AuthenticatedStaff;
+};
+
+export type StaffRouteHandler<P = Record<string, string | string[]>> = (
+  req: NextRequest,
+  context: StaffRouteContext<P>
+) => Promise<NextResponse | Response>;
+
+// Reusable wrapper combining CSRF enforcement, staff authentication, and centralized error handling
+export function withStaffAuth<P = Record<string, string | string[]>>(
+  allowedRoles: RoleName[],
+  handler: StaffRouteHandler<P>
+) {
+  return async (
+    req: NextRequest,
+    rawContext?: { params?: Promise<P> }
+  ): Promise<NextResponse | Response> => {
+    try {
+      await requireCsrf(req);
+      const actor = await requireStaffAuth(allowedRoles);
+      const params = rawContext?.params ?? (Promise.resolve({} as P));
+      return await handler(req, { params, actor });
+    } catch (err) {
+      return handleApiError(err);
+    }
+  };
+}
+
 // Deny-by-default RBAC guard backed by live DB user status & tokenVersion check
 export async function requireStaffAuth(allowedRoles: RoleName[]): Promise<AuthenticatedStaff> {
-  const session = await auth();
+  let session;
+  try {
+    session = await auth();
+  } catch {
+    throw new AppError(401, 'Authentication required', 'AUTH_REQUIRED');
+  }
+
   const userIdStr = session?.user?.id;
   const sessionTokenVersion = (session?.user as { tokenVersion?: number } | undefined)?.tokenVersion;
 

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/api-error';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { requireStaffAuth, withStaffAuth } from '@/lib/auth-guard';
 import { generateOpaqueToken } from '@/lib/crypto';
 import { prisma } from '@/lib/prisma';
 import { generateTableQrAssets } from '@/lib/qr';
@@ -28,26 +28,21 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    await requireStaffAuth(['owner', 'manager']);
-    const body = await parseJsonBody(req, createTableSchema);
+export const POST = withStaffAuth(['owner', 'manager'], async (req) => {
+  const body = await parseJsonBody(req, createTableSchema);
 
-    const table = await prisma.table.create({
-      data: {
-        tableNumber: sanitizeUserText(body.tableNumber, 20),
-        label: sanitizeUserText(body.label, 80),
-        capacity: body.capacity ?? 4,
-        zone: body.zone ? sanitizeUserText(body.zone, 60) : 'Main Hall',
-        qrToken: generateOpaqueToken(32),
-        status: 'free',
-        isActive: true,
-      },
-    });
-    const qr = await generateTableQrAssets(table.qrToken);
-    return NextResponse.json({ table, qr }, { status: 201 });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+  const table = await prisma.table.create({
+    data: {
+      tableNumber: sanitizeUserText(body.tableNumber, 20),
+      label: sanitizeUserText(body.label, 80),
+      capacity: body.capacity ?? 4,
+      zone: body.zone ? sanitizeUserText(body.zone, 60) : 'Main Hall',
+      qrToken: generateOpaqueToken(32),
+      status: 'free',
+      isActive: true,
+    },
+  });
+  const qr = await generateTableQrAssets(table.qrToken);
+  return NextResponse.json({ table, qr }, { status: 201 });
+});
 
