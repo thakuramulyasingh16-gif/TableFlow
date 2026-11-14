@@ -33,6 +33,7 @@ const httpsImageUrlSchema = z
 export const initGuestSessionSchema = z
   .object({
     tableToken: z.string().min(20).max(120),
+    pin: z.string().trim().min(4).max(8).optional(),
   })
   .strict();
 

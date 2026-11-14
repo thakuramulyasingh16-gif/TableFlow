@@ -7,6 +7,7 @@ import {
   BellRing,
   CheckCircle2,
   CreditCard,
+  Lock,
   Mail,
   Minus,
   Plus,
@@ -180,6 +181,10 @@ export function GuestDiningClient({
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [mockCheckout, setMockCheckout] = useState<MockCheckout | null>(null);
   const [paymentSuccessBanner, setPaymentSuccessBanner] = useState(false);
+  const [requiresPin, setRequiresPin] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinSubmitting, setPinSubmitting] = useState(false);
+  const [pinError, setPinError] = useState('');
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -195,37 +200,76 @@ export function GuestDiningClient({
     setBill(billRes);
   }, []);
 
+  const loadMenuAndData = useCallback(async () => {
+    const menuRes = await apiFetch<{ categories: Category[]; items: MenuItem[]; deals: Deal[] }>(
+      '/api/guest/menu'
+    );
+    setCategories(menuRes.categories || []);
+    setItems(menuRes.items || []);
+    setDeals(menuRes.deals || []);
+
+    const defMap: Record<number, number> = {};
+    for (const it of menuRes.items || []) {
+      const defVar = it.variants?.find((v) => v.isDefault) || it.variants?.[0];
+      if (defVar) defMap[it.id] = defVar.id;
+    }
+    setSelectedVariants(defMap);
+
+    await refreshOrdersAndBill();
+  }, [refreshOrdersAndBill]);
+
+  const handleJoinWithPin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pinInput.trim()) return;
+    setPinSubmitting(true);
+    setPinError('');
+    try {
+      const init = await apiFetch<{
+        table: { id: number; tableNumber: string; label: string; zone: string };
+        session: { id: number };
+      }>('/api/guest/session', {
+        method: 'POST',
+        body: { tableToken, pin: pinInput.trim() },
+      });
+      setTable(init.table);
+      setSessionId(init.session.id);
+      setRequiresPin(false);
+      setLoading(true);
+      await loadMenuAndData();
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : 'Invalid table PIN');
+    } finally {
+      setPinSubmitting(false);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         const init = await apiFetch<{
           table: { id: number; tableNumber: string; label: string; zone: string };
-          session: { id: number };
+          session?: { id: number };
+          requiresPin?: boolean;
         }>('/api/guest/session', {
           method: 'POST',
           body: { tableToken },
         });
         if (!active) return;
         setTable(init.table);
-        setSessionId(init.session.id);
 
-        const menuRes = await apiFetch<{ categories: Category[]; items: MenuItem[]; deals: Deal[] }>(
-          '/api/guest/menu'
-        );
-        if (!active) return;
-        setCategories(menuRes.categories || []);
-        setItems(menuRes.items || []);
-        setDeals(menuRes.deals || []);
-
-        const defMap: Record<number, number> = {};
-        for (const it of menuRes.items || []) {
-          const defVar = it.variants?.find((v) => v.isDefault) || it.variants?.[0];
-          if (defVar) defMap[it.id] = defVar.id;
+        if (init.requiresPin) {
+          setRequiresPin(true);
+          setLoading(false);
+          return;
         }
-        setSelectedVariants(defMap);
 
-        await refreshOrdersAndBill();
+        if (init.session) {
+          setSessionId(init.session.id);
+        }
+
+        await loadMenuAndData();
       } catch (err) {
         if (active) setFatalError(err instanceof Error ? err.message : 'Unable to load table session');
       } finally {
@@ -235,7 +279,7 @@ export function GuestDiningClient({
     return () => {
       active = false;
     };
-  }, [tableToken, refreshOrdersAndBill]);
+  }, [tableToken, loadMenuAndData]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -526,6 +570,58 @@ export function GuestDiningClient({
           <Skeleton className="h-32 w-full rounded-[20px]" />
         </div>
       </div>
+    );
+  }
+
+  if (requiresPin) {
+    return (
+      <main className="min-h-screen bg-cream flex items-center justify-center p-5">
+        <Card className="p-6 max-w-sm w-full text-center space-y-4 shadow-card">
+          <div className="w-12 h-12 mx-auto rounded-full bg-mint-bg flex items-center justify-center text-leaf">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div>
+            <span className="px-3 py-1 rounded-full bg-ink text-sun-soft text-[12px] font-extrabold inline-block mb-2">
+              {table?.label || 'Table'}
+            </span>
+            <h1 className="text-[22px] font-extrabold text-ink">Enter Table PIN</h1>
+            <p className="text-[13px] text-muted mt-1">
+              A dining session is already active for this table. Ask your waiter or dining partner for the 4-digit PIN to join.
+            </p>
+          </div>
+
+          <form onSubmit={handleJoinWithPin} className="space-y-3">
+            <label htmlFor="table-pin-input" className="sr-only">Table PIN</label>
+            <input
+              id="table-pin-input"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              autoFocus
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+              placeholder="4-digit PIN"
+              className="w-full text-center tracking-[0.3em] font-mono text-[22px] font-extrabold min-h-[48px] px-4 py-2 rounded-[14px] bg-surface text-ink border-2 border-mint focus:border-leaf outline-none"
+            />
+
+            {pinError && (
+              <p className="text-[12px] font-bold text-tomato" role="alert">
+                {pinError}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              variant="leaf"
+              fullWidth
+              disabled={pinSubmitting || pinInput.trim().length < 4}
+            >
+              {pinSubmitting ? 'Joining...' : 'Join Table Session'}
+            </Button>
+          </form>
+        </Card>
+      </main>
     );
   }
 

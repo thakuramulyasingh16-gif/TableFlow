@@ -172,6 +172,8 @@ model TableSession {
   id               Int                @id @default(autoincrement())
   tableId          Int                @map("table_id")
   sessionTokenHash String             @unique @map("session_token_hash") @db.Char(64)
+  rawToken         String?            @map("raw_token") @db.VarChar(64)
+  joinPin          String?            @map("join_pin") @db.VarChar(8)
   status           TableSessionStatus @default(active)
   guestEmail       String?            @map("guest_email") @db.VarChar(190)
   lastActivityAt   DateTime           @default(now()) @map("last_activity_at")

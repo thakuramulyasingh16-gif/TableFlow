@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
           const res = NextResponse.json({
             table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
             session: { id: existingSession.id, status: existingSession.status, expiresAt: existingSession.expiresAt },
+            joinPin: existingSession.joinPin,
           });
           setCsrfCookie(res);
           return res;
@@ -47,22 +48,102 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const rawSessionToken = generateOpaqueToken(32);
-    const expiresAt = new Date(Date.now() + env.GUEST_SESSION_TTL_MINUTES * 60 * 1000);
-    const session = await prisma.tableSession.create({
-      data: {
+    // Check if there is already an active session for this table
+    const activeSession = await prisma.tableSession.findFirst({
+      where: {
         tableId: table.id,
-        sessionTokenHash: sha256Hex(rawSessionToken),
         status: 'active',
-        lastActivityAt: new Date(),
-        expiresAt,
+        expiresAt: { gt: new Date() },
       },
     });
+
+    if (activeSession) {
+      // Require PIN to join the active table session
+      if (!body.pin) {
+        return NextResponse.json({
+          requiresPin: true,
+          table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
+        });
+      }
+
+      // Enforce rate limit on PIN attempts per table/IP
+      await enforceRateLimit('table_pin', `${getClientIp(req)}:${table.id}`);
+
+      if (!activeSession.joinPin || activeSession.joinPin !== body.pin.trim()) {
+        throw new AppError(401, 'Invalid table PIN. Please ask your waiter or dining partner.', 'INVALID_TABLE_PIN');
+      }
+
+      // PIN valid - join the shared session and issue signed cookie
+      let rawToken = activeSession.rawToken;
+      if (!rawToken) {
+        rawToken = generateOpaqueToken(32);
+        await prisma.tableSession.update({
+          where: { id: activeSession.id },
+          data: {
+            sessionTokenHash: sha256Hex(rawToken),
+            rawToken,
+          },
+        });
+      }
+
+      const res = NextResponse.json({
+        table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
+        session: { id: activeSession.id, status: activeSession.status, expiresAt: activeSession.expiresAt },
+        joinPin: activeSession.joinPin,
+      });
+      setGuestSessionCookie(res, rawToken, activeSession.expiresAt);
+      setCsrfCookie(res);
+      return res;
+    }
+
+    // First scanner on idle table creates the active session and generates the 4-digit PIN
+    const rawSessionToken = generateOpaqueToken(32);
+    const joinPin = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresAt = new Date(Date.now() + env.GUEST_SESSION_TTL_MINUTES * 60 * 1000);
+
+    const session = await prisma.$transaction(async (tx) => {
+      const concurrent = await tx.tableSession.findFirst({
+        where: { tableId: table.id, status: 'active', expiresAt: { gt: new Date() } },
+      });
+      if (concurrent) {
+        return concurrent;
+      }
+
+      const created = await tx.tableSession.create({
+        data: {
+          tableId: table.id,
+          sessionTokenHash: sha256Hex(rawSessionToken),
+          rawToken: rawSessionToken,
+          joinPin,
+          status: 'active',
+          lastActivityAt: new Date(),
+          expiresAt,
+        },
+      });
+
+      if (table.status === 'free') {
+        await tx.table.update({
+          where: { id: table.id },
+          data: { status: 'ordered' },
+        });
+      }
+
+      return created;
+    });
+
+    if (session.rawToken !== rawSessionToken) {
+      // Concurrently created by another scanner
+      return NextResponse.json({
+        requiresPin: true,
+        table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
+      });
+    }
 
     const res = NextResponse.json(
       {
         table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
         session: { id: session.id, status: session.status, expiresAt: session.expiresAt },
+        joinPin: session.joinPin,
       },
       { status: 201 }
     );

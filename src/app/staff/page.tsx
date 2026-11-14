@@ -27,6 +27,8 @@ interface FloorTable {
   zone: string;
   status: 'free' | 'ordered' | 'needs_help' | 'bill_requested';
   activeOrderCount: number;
+  pin?: string | null;
+  activeSessionId?: number | null;
 }
 
 interface StaffOrder {
@@ -287,8 +289,13 @@ export default function StaffPage() {
                     <div className="text-[12px] text-muted">
                       {t.zone} · {t.capacity} seats
                     </div>
-                    <div className="text-[13px] font-bold text-ink">
-                      Active orders: {t.activeOrderCount}
+                    <div className="flex items-center justify-between text-[13px] font-bold text-ink">
+                      <span>Orders: {t.activeOrderCount}</span>
+                      {t.pin && (
+                        <span className="font-mono text-[11px] font-extrabold bg-mint-bg text-leaf px-2 py-0.5 rounded-full border border-leaf/20" title="Table PIN for guests">
+                          PIN {t.pin}
+                        </span>
+                      )}
                     </div>
                     {t.status !== 'free' && t.activeOrderCount === 0 && (
                       <Button variant="mint" fullWidth onClick={() => void resetTableFree(t.id)}>

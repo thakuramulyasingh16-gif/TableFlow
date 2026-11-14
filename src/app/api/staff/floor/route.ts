@@ -7,11 +7,15 @@ export async function GET() {
   try {
     await requireStaffAuth(['waiter', 'manager', 'owner']);
 
-    const [tables, activeOrders, pendingCalls] = await Promise.all([
+    const [tables, activeSessions, activeOrders, pendingCalls] = await Promise.all([
       prisma.table.findMany({
         where: { isActive: true },
         select: { id: true, tableNumber: true, label: true, capacity: true, zone: true, status: true },
         orderBy: { id: 'asc' },
+      }),
+      prisma.tableSession.findMany({
+        where: { status: 'active', expiresAt: { gt: new Date() } },
+        select: { id: true, tableId: true, joinPin: true, createdAt: true },
       }),
       prisma.order.findMany({
         where: { status: { in: ['received', 'confirmed', 'preparing', 'ready'] } },
@@ -23,11 +27,18 @@ export async function GET() {
       }),
     ]);
 
-    const floor = tables.map((t) => ({
-      ...t,
-      activeOrderCount: activeOrders.filter((o) => o.tableId === t.id).length,
-      pendingCalls: pendingCalls.filter((c) => c.tableId === t.id),
-    }));
+    const sessionByTable = new Map(activeSessions.map((s) => [s.tableId, s]));
+
+    const floor = tables.map((t) => {
+      const activeSess = sessionByTable.get(t.id);
+      return {
+        ...t,
+        pin: activeSess?.joinPin || null,
+        activeSessionId: activeSess?.id || null,
+        activeOrderCount: activeOrders.filter((o) => o.tableId === t.id).length,
+        pendingCalls: pendingCalls.filter((c) => c.tableId === t.id),
+      };
+    });
 
     return NextResponse.json({ tables: floor });
   } catch (err) {

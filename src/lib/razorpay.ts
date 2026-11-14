@@ -387,10 +387,16 @@ export async function verifyAndCapturePayment({
           where: { id: tableSessionId },
           data: { status: 'paid', closedAt: new Date() },
         });
-        await tx.table.update({
-          where: { id: sess.tableId },
-          data: { status: 'free' },
+
+        const remainingActive = await tx.tableSession.count({
+          where: { tableId: sess.tableId, status: 'active', id: { not: sess.id } },
         });
+        if (remainingActive === 0) {
+          await tx.table.update({
+            where: { id: sess.tableId },
+            data: { status: 'free' },
+          });
+        }
         sessionClosed = true;
       }
     }
@@ -478,7 +484,12 @@ export async function processRazorpayWebhook({
               where: { id: sess.id },
               data: { status: 'paid', closedAt: new Date() },
             });
-            await tx.table.update({ where: { id: sess.tableId }, data: { status: 'free' } });
+            const remainingActive = await tx.tableSession.count({
+              where: { tableId: sess.tableId, status: 'active', id: { not: sess.id } },
+            });
+            if (remainingActive === 0) {
+              await tx.table.update({ where: { id: sess.tableId }, data: { status: 'free' } });
+            }
           }
         }
       } else {
