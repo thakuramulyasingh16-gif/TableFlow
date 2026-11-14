@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import {
+  Banknote,
   BellRing,
   Check,
   CheckCircle2,
@@ -13,11 +14,14 @@ import {
   RefreshCw,
   Sparkles,
   Utensils,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
-import { Badge, Button, Card, Skeleton, Toast } from '@/components/ui';
+import { playChime } from '@/lib/sound';
+import { Badge, Button, Card, Modal, Skeleton, Toast } from '@/components/ui';
 
 interface FloorTable {
   id: number;
@@ -27,6 +31,13 @@ interface FloorTable {
   zone: string;
   status: 'free' | 'ordered' | 'needs_help' | 'bill_requested';
   activeOrderCount: number;
+  pin?: string | null;
+  activeSessionId?: number | null;
+  pendingUpiPayment?: {
+    id: number;
+    amountPaise: number;
+    razorpayOrderId: string;
+  } | null;
 }
 
 interface StaffOrder {
@@ -41,6 +52,7 @@ interface StaffOrder {
     quantity: number;
     itemNameSnapshot: string;
     variantNameSnapshot?: string | null;
+    specialInstructions?: string | null;
     status: string;
   }[];
 }
@@ -98,6 +110,27 @@ export default function StaffPage() {
   const [calls, setCalls] = useState<WaiterCall[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+  const [soundEnabled, setSoundEnabled] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('tableflow_sound_enabled') === 'true' : false
+  );
+  const prevOrdersCountRef = useRef(0);
+  const prevCallsCountRef = useRef(0);
+
+  function toggleSound() {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('tableflow_sound_enabled', String(next));
+      }
+      return next;
+    });
+  }
+
+  const [payingTable, setPayingTable] = useState<FloorTable | null>(null);
+  const [collectAmountRupees, setCollectAmountRupees] = useState('');
+  const [collectMethod, setCollectMethod] = useState<'cash' | 'counter_upi' | 'counter_card'>('cash');
+  const [collectReference, setCollectReference] = useState('');
+  const [collectSubmitting, setCollectSubmitting] = useState(false);
 
   const loadAll = useCallback(async () => {
     try {
@@ -106,15 +139,30 @@ export default function StaffPage() {
         apiFetch<{ orders: StaffOrder[] }>('/api/staff/orders'),
         apiFetch<{ calls: WaiterCall[] }>('/api/staff/waiter-calls'),
       ]);
+
+      const nextOrders = ordersRes.orders || [];
+      const nextCalls = callsRes.calls || [];
+
+      if (soundEnabled) {
+        if (prevCallsCountRef.current > 0 && nextCalls.length > prevCallsCountRef.current) {
+          playChime('waiter_call');
+        } else if (prevOrdersCountRef.current > 0 && nextOrders.length > prevOrdersCountRef.current) {
+          playChime('new_order');
+        }
+      }
+
+      prevOrdersCountRef.current = nextOrders.length;
+      prevCallsCountRef.current = nextCalls.length;
+
       setTables(floorRes.tables || []);
-      setOrders(ordersRes.orders || []);
-      setCalls(callsRes.calls || []);
+      setOrders(nextOrders);
+      setCalls(nextCalls);
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Unable to load floor data');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [soundEnabled]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -165,9 +213,89 @@ export default function StaffPage() {
     await loadAll();
   }
 
-  async function resetTableFree(tableId: number) {
-    await apiFetch(`/api/staff/tables/${tableId}/status`, { method: 'PATCH', body: { status: 'free' } });
-    await loadAll();
+  async function confirmUpi(paymentId: number) {
+    try {
+      await apiFetch('/api/staff/payments/confirm-upi', {
+        method: 'POST',
+        body: { paymentId },
+      });
+      setToast('UPI payment confirmed successfully!');
+      setTimeout(() => setToast(''), 2500);
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to confirm UPI payment');
+      setTimeout(() => setToast(''), 2500);
+    }
+  }
+
+  async function handleOpenTable(tableId: number) {
+    try {
+      const res = await apiFetch<{ table: FloorTable; session: { joinPin: string } }>(
+        `/api/staff/tables/${tableId}/open`,
+        { method: 'POST', body: {} }
+      );
+      setToast(`Table opened! Guest PIN is ${res.session.joinPin}`);
+      setTimeout(() => setToast(''), 3500);
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to open table');
+      setTimeout(() => setToast(''), 2500);
+    }
+  }
+
+  async function handleCloseTable(tableId: number) {
+    try {
+      await apiFetch(`/api/staff/tables/${tableId}/close`, { method: 'POST', body: {} });
+      setToast('Table closed and marked free.');
+      setTimeout(() => setToast(''), 2500);
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to close table');
+      setTimeout(() => setToast(''), 2500);
+    }
+  }
+
+  function openCollectModal(t: FloorTable) {
+    setPayingTable(t);
+    // Find total from table's orders if possible, or prefill empty
+    const tableOrders = orders.filter((o) => o.table?.id === t.id);
+    const sumPaise = tableOrders.reduce((sum, o) => sum + o.totalPaise, 0);
+    setCollectAmountRupees(sumPaise > 0 ? (sumPaise / 100).toFixed(2) : '');
+    setCollectMethod('cash');
+    setCollectReference('');
+  }
+
+  async function handleRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!payingTable?.activeSessionId) return;
+
+    const rupees = parseFloat(collectAmountRupees);
+    if (isNaN(rupees) || rupees <= 0) {
+      setToast('Please enter a valid amount');
+      return;
+    }
+
+    setCollectSubmitting(true);
+    try {
+      await apiFetch('/api/staff/payments/record', {
+        method: 'POST',
+        body: {
+          tableSessionId: payingTable.activeSessionId,
+          amountPaise: Math.round(rupees * 100),
+          method: collectMethod,
+          paymentReference: collectReference.trim() || null,
+        },
+      });
+      setToast(`Payment recorded for ${payingTable.label}! Session closed.`);
+      setPayingTable(null);
+      setCollectAmountRupees('');
+      setCollectReference('');
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to record payment');
+    } finally {
+      setCollectSubmitting(false);
+    }
   }
 
   if (status === 'loading') {
@@ -214,6 +342,15 @@ export default function StaffPage() {
                 </Link>
               </>
             )}
+            <button
+              type="button"
+              onClick={toggleSound}
+              aria-pressed={soundEnabled}
+              className="min-h-[44px] px-3.5 rounded-[14px] bg-surface text-ink text-[13px] font-bold inline-flex items-center gap-1.5 shadow-sm hover:bg-cream cursor-pointer transition"
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4 text-leaf" /> : <VolumeX className="w-4 h-4 text-muted" />}
+              {soundEnabled ? 'Sound on' : 'Sound off'}
+            </button>
             <button
               type="button"
               aria-label="Refresh floor"
@@ -287,13 +424,56 @@ export default function StaffPage() {
                     <div className="text-[12px] text-muted">
                       {t.zone} · {t.capacity} seats
                     </div>
-                    <div className="text-[13px] font-bold text-ink">
-                      Active orders: {t.activeOrderCount}
+                    <div className="flex items-center justify-between text-[13px] font-bold text-ink">
+                      <span>Orders: {t.activeOrderCount}</span>
+                      {t.pin && (
+                        <span className="font-mono text-[11px] font-extrabold bg-mint-bg text-leaf px-2 py-0.5 rounded-full border border-leaf/20" title="Table PIN for guests">
+                          PIN {t.pin}
+                        </span>
+                      )}
                     </div>
-                    {t.status !== 'free' && t.activeOrderCount === 0 && (
-                      <Button variant="mint" fullWidth onClick={() => void resetTableFree(t.id)}>
-                        Mark Free
+                    {t.pendingUpiPayment && (
+                      <div className="p-2 rounded-lg bg-sun/20 border border-sun text-ink text-[11px] flex items-center justify-between gap-1">
+                        <div>
+                          <span className="font-extrabold">UPI QR:</span> {(t.pendingUpiPayment.amountPaise / 100).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
+                        </div>
+                        <Button
+                          variant="leaf"
+                          onClick={() => void confirmUpi(t.pendingUpiPayment!.id)}
+                          className="text-[11px] py-1 px-2 h-auto"
+                        >
+                          Confirm UPI
+                        </Button>
+                      </div>
+                    )}
+                    {t.status === 'free' ? (
+                      <Button
+                        variant="leaf"
+                        fullWidth
+                        onClick={() => void handleOpenTable(t.id)}
+                        className="text-[12px] py-1.5 flex items-center justify-center gap-1 font-extrabold"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Open Table
                       </Button>
+                    ) : (
+                      <div className="flex gap-1.5 pt-1">
+                        <Button
+                          variant="sun"
+                          fullWidth
+                          onClick={() => openCollectModal(t)}
+                          className="flex items-center justify-center gap-1 text-[12px] py-1.5"
+                        >
+                          <Banknote className="w-3.5 h-3.5" /> Collect Bill
+                        </Button>
+                        <Button
+                          variant="mint"
+                          onClick={() => void handleCloseTable(t.id)}
+                          title="Close table and mark free"
+                          className="text-[12px] py-1.5 px-2.5"
+                        >
+                          Close
+                        </Button>
+                      </div>
                     )}
                   </Card>
                 );
@@ -321,12 +501,19 @@ export default function StaffPage() {
                     </div>
                     <ul className="mt-3 space-y-1.5 text-[14px] border-t border-mint pt-2.5">
                       {ord.items.map((it) => (
-                        <li key={it.id} className="flex justify-between gap-2">
-                          <span className="font-medium text-ink">
-                            {it.quantity}× {it.itemNameSnapshot}
-                            {it.variantNameSnapshot ? ` (${it.variantNameSnapshot})` : ''}
-                          </span>
-                          <span className="text-[12px] font-bold text-muted capitalize">{it.status}</span>
+                        <li key={it.id} className="space-y-0.5">
+                          <div className="flex justify-between gap-2">
+                            <span className="font-medium text-ink">
+                              {it.quantity}× {it.itemNameSnapshot}
+                              {it.variantNameSnapshot ? ` (${it.variantNameSnapshot})` : ''}
+                            </span>
+                            <span className="text-[12px] font-bold text-muted capitalize">{it.status}</span>
+                          </div>
+                          {it.specialInstructions && (
+                            <div className="text-[11px] font-bold text-tomato">
+                              Note: {it.specialInstructions}
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -354,6 +541,89 @@ export default function StaffPage() {
           )}
         </section>
       </main>
+
+      {/* Counter / Cash Payment Modal */}
+      {payingTable && (
+        <Modal
+          open={true}
+          onClose={() => setPayingTable(null)}
+          title={`Collect Bill — ${payingTable.label}`}
+        >
+          <form onSubmit={handleRecordPayment} className="space-y-4">
+            <div>
+              <p className="text-xs text-muted mb-1">
+                Record an offline counter payment (Cash, external UPI or Card) to settle this table&apos;s bill.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="collect-amount" className="block text-xs font-bold text-ink mb-1">
+                Amount to Collect (₹)
+              </label>
+              <input
+                id="collect-amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                value={collectAmountRupees}
+                onChange={(e) => setCollectAmountRupees(e.target.value)}
+                placeholder="0.00"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[15px] font-bold"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="collect-method" className="block text-xs font-bold text-ink mb-1">
+                Payment Method
+              </label>
+              <select
+                id="collect-method"
+                value={collectMethod}
+                onChange={(e) => setCollectMethod(e.target.value as 'cash' | 'counter_upi' | 'counter_card')}
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px] font-semibold"
+              >
+                <option value="cash">Cash Payment</option>
+                <option value="counter_upi">External UPI (GPay / PhonePe / Paytm)</option>
+                <option value="counter_card">Card Machine (POS EDC)</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="collect-ref" className="block text-xs font-bold text-ink mb-1">
+                Reference / Notes (optional)
+              </label>
+              <input
+                id="collect-ref"
+                type="text"
+                value={collectReference}
+                onChange={(e) => setCollectReference(e.target.value)}
+                placeholder="e.g. UPI UTR number or POS slip reference"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[13px]"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setPayingTable(null)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="leaf"
+                disabled={collectSubmitting}
+                className="flex-1 font-bold"
+              >
+                {collectSubmitting ? 'Recording...' : 'Collect & Clear Table'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

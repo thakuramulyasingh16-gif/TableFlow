@@ -33,6 +33,7 @@ const httpsImageUrlSchema = z
 export const initGuestSessionSchema = z
   .object({
     tableToken: z.string().min(20).max(120),
+    pin: z.string().trim().min(4).max(8).optional(),
   })
   .strict();
 
@@ -229,7 +230,13 @@ export const acknowledgeAlertSchema = z
   .object({
     quantity: z.number().positive().max(100000),
     unit: ingredientUnitEnum,
-    totalCostRupees: z.number().positive().max(10000000),
+    totalCostRupees: z
+      .number()
+      .positive()
+      .max(10000000)
+      .refine((val) => Math.round(val * 100) >= 1, {
+        message: 'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+      }),
     supplier: z.string().trim().max(190).optional(),
     notes: z.string().trim().max(500).optional(),
     purchasedAt: z.string().datetime().optional(),
@@ -241,7 +248,13 @@ export const createPurchaseSchema = z
     ingredientId: z.number().int().positive(),
     quantity: z.number().positive().max(100000),
     unit: ingredientUnitEnum,
-    totalCostRupees: z.number().positive().max(10000000),
+    totalCostRupees: z
+      .number()
+      .positive()
+      .max(10000000)
+      .refine((val) => Math.round(val * 100) >= 1, {
+        message: 'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+      }),
     supplier: z.string().trim().max(190).optional(),
     notes: z.string().trim().max(500).optional(),
     purchasedAt: z.string().datetime().optional(),
@@ -253,7 +266,14 @@ export const editPurchaseSchema = z
   .object({
     quantity: z.number().positive().max(100000).optional(),
     unit: ingredientUnitEnum.optional(),
-    totalCostRupees: z.number().positive().max(10000000).optional(),
+    totalCostRupees: z
+      .number()
+      .positive()
+      .max(10000000)
+      .refine((val) => Math.round(val * 100) >= 1, {
+        message: 'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+      })
+      .optional(),
     supplier: z.string().trim().max(190).optional().nullable(),
     notes: z.string().trim().max(500).optional().nullable(),
     reason: z.string().trim().min(3, 'Reason is required for editing a purchase').max(255),
@@ -266,6 +286,8 @@ export const createIngredientSchema = z
     unit: ingredientUnitEnum,
     notes: z.string().trim().max(500).optional(),
     stockStatus: stockStatusEnum.optional(),
+    currentStock: z.number().min(0).max(100000).optional().nullable(),
+    lowStockThreshold: z.number().min(0).max(100000).optional().nullable(),
   })
   .strict();
 
@@ -301,6 +323,54 @@ export const bulkDeleteDishesSchema = z
     itemIds: z.array(z.number().int().positive()).optional(),
     deleteAll: z.boolean().optional(),
     confirmationText: z.literal('DELETE'),
+  })
+  .strict();
+
+export const recordCounterPaymentSchema = z
+  .object({
+    tableSessionId: z.number().int().positive(),
+    amountPaise: z.number().int().positive().max(100000000),
+    method: z.enum(['cash', 'counter_upi', 'counter_card', 'other']),
+    paymentReference: z.string().trim().max(100).optional().nullable(),
+    tipPaise: z.number().int().min(0).max(500000).default(0),
+  })
+  .strict();
+
+export const confirmUpiPaymentSchema = z
+  .object({
+    paymentId: z.number().int().positive(),
+    transactionReference: z.string().trim().max(100).optional().nullable(),
+  })
+  .strict();
+
+export const updateRestaurantSettingsSchema = z
+  .object({
+    restaurantName: z.string().trim().min(1).max(120).optional(),
+    legalName: z.string().trim().min(1).max(190).optional(),
+    address: z.string().trim().min(1).max(255).optional(),
+    phone: z.string().trim().max(20).optional().nullable(),
+    email: z.string().trim().email().max(190).optional().nullable(),
+    gstin: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, 'Invalid Indian GSTIN format')
+      .optional(),
+    fssaiNumber: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{14}$/, 'FSSAI number must be exactly 14 digits')
+      .optional(),
+    stateCode: z
+      .string()
+      .trim()
+      .regex(/^[0-9]{2}$/, 'State code must be 2 digits')
+      .optional(),
+    stateName: z.string().trim().min(1).max(60).optional(),
+    hsnSacCode: z.string().trim().min(4).max(10).optional(),
+    cgstBps: z.number().int().min(0).max(1400).optional(),
+    sgstBps: z.number().int().min(0).max(1400).optional(),
+    paymentProvider: z.enum(['razorpay', 'upi_qr']).optional(),
+    upiId: z.string().trim().max(100).optional().nullable(),
   })
   .strict();
 

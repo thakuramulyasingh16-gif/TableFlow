@@ -1,18 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { syncAvailabilityForIngredient } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 import { broadcastRealtime } from '@/lib/realtime';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const staff = await requireStaffAuth(['chef', 'manager', 'owner']);
-    const { id: rawId } = await params;
+export const POST = withStaffAuth<{ id: string }>(['chef', 'manager', 'owner'], async (req, { params, actor: staff }) => {
+  const { id: rawId } = await params;
     const alertId = parseInt(rawId, 10);
     if (isNaN(alertId) || alertId <= 0) {
       throw new AppError(400, 'Invalid alert ID', 'INVALID_ID');
@@ -80,11 +75,13 @@ export async function POST(
         },
       });
 
-      return { updatedIngredient, updatedAlert };
+      // 5. Synchronize availability on all dishes using this ingredient inside the transaction
+      const { affectedDishes } = await syncAvailabilityForIngredient(alert.ingredientId, tx);
+
+      return { updatedIngredient, updatedAlert, affectedDishes };
     });
 
-    // 5. Synchronize availability on all dishes using this ingredient (they become available again!)
-    const { affectedDishes } = await syncAvailabilityForIngredient(alert.ingredientId);
+    const affectedDishes = result.affectedDishes;
 
     // 6. Audit log
     await recordAuditLog({
@@ -101,12 +98,12 @@ export async function POST(
       },
     });
 
-    // 7. Broadcast realtime event
-    await broadcastRealtime('staff', 'INVENTORY_STOCK_RECEIVED', {
+    // 7. Broadcast realtime event (sanitized, no staff names)
+    await broadcastRealtime('inventory', 'INVENTORY_STOCK_RECEIVED', {
       alertId: alert.id,
       ingredientId: alert.ingredientId,
       ingredientName: alert.ingredient.name,
-      receivedBy: staff.name,
+      actorRole: staff.role,
       affectedDishes,
     }).catch(() => {});
 
@@ -115,7 +112,4 @@ export async function POST(
       alert: result.updatedAlert,
       affectedDishes,
     });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

@@ -47,7 +47,9 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ categories, items: publicItems, deals: activeDeals });
+    const res = NextResponse.json({ categories, items: publicItems, deals: activeDeals });
+    res.headers.set('Cache-Control', 'private, max-age=5, stale-while-revalidate=15');
+    return res;
   } catch (err) {
     return handleApiError(err);
   }

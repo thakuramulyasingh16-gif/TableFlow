@@ -4,16 +4,31 @@ import { NextRequest } from 'next/server';
 import { AppError } from './api-error';
 import { getEnv } from './env';
 
-type LimiterBucket = 'global' | 'login' | 'order' | 'waiter_call' | 'payment' | 'stock_toggle' | 'purchase';
+type LimiterBucket =
+  | 'global'
+  | 'login'
+  | 'login_ip'
+  | 'login_email'
+  | 'order'
+  | 'waiter_call'
+  | 'payment'
+  | 'stock_toggle'
+  | 'purchase'
+  | 'table_pin'
+  | 'health';
 
 const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: `${number} s` | `${number} m` }> = {
   global: { max: 300, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login: { max: 10, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  login_ip: { max: 20, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  login_email: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   order: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   waiter_call: { max: 6, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   payment: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   stock_toggle: { max: 60, windowMs: 1 * 60 * 1000, windowStr: '1 m' },
   purchase: { max: 30, windowMs: 5 * 60 * 1000, windowStr: '5 m' },
+  table_pin: { max: 5, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
+  health: { max: 60, windowMs: 1 * 60 * 1000, windowStr: '1 m' },
 };
 
 const memoryWindows = new Map<string, number[]>();

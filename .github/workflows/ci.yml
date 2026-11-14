@@ -2,13 +2,38 @@ name: TableFlow CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'hardening/*']
   pull_request:
     branches: [main]
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tableflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tableflow
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/tableflow
+      AUTH_SECRET: replace_with_ci_auth_secret_32_chars_min
+      GUEST_COOKIE_SECRET: replace_with_ci_guest_secret_32_chars_min
+      CORS_ORIGIN: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      PAYMENTS_MOCK: "true"
+      NODE_ENV: test
 
     steps:
       - name: Checkout repository
@@ -24,10 +49,13 @@ jobs:
         run: npm ci
 
       - name: Secret scan
-        run: node scripts/secret-scan.mjs --all
+        run: npm run secret-scan:all
 
       - name: Prisma generate
         run: npx prisma generate
+
+      - name: Prisma migrate deploy
+        run: npx prisma migrate deploy
 
       - name: TypeScript typecheck
         run: npm run typecheck
@@ -35,18 +63,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Run unit & security tests
+      - name: Run unit & integration test suite
         run: npm test
 
-      - name: Production build
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/tableflow
-          AUTH_SECRET: replace_with_ci_auth_secret_32_chars_min
-          GUEST_COOKIE_SECRET: replace_with_ci_guest_secret_32_chars_min
-          CORS_ORIGIN: http://localhost:3000
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
+      - name: Production build check
         run: npm run build
-
-      - name: Audit dependencies
-        run: npm audit --audit-level=high

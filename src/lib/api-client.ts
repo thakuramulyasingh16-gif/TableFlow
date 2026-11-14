@@ -27,7 +27,7 @@ export async function apiFetch<T>(
   {
     method = 'GET',
     body = null,
-    csrf = false,
+    csrf = true,
   }: {
     method?: string;
     body?: unknown;
@@ -38,7 +38,8 @@ export async function apiFetch<T>(
   if (body !== null) {
     headers['Content-Type'] = 'application/json';
   }
-  if (csrf && method !== 'GET') {
+  const isMutating = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+  if (isMutating && csrf) {
     headers['X-CSRF-Token'] = await ensureCsrfToken();
   }
 

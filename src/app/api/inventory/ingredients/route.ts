@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { AppError, handleApiError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { requireStaffAuth, withStaffAuth } from '@/lib/auth-guard';
 import { prisma } from '@/lib/prisma';
 import { sanitizeUserText } from '@/lib/sanitize';
 import { createIngredientSchema, parseJsonBody } from '@/lib/validators';
@@ -54,52 +55,53 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    const body = await parseJsonBody(req, createIngredientSchema);
+export const POST = withStaffAuth(['manager', 'owner'], async (req, { actor: staff }) => {
+  const body = await parseJsonBody(req, createIngredientSchema);
 
-    const existing = await prisma.ingredient.findUnique({
-      where: { name: body.name },
-    });
+  const existing = await prisma.ingredient.findUnique({
+    where: { name: body.name },
+  });
 
-    if (existing) {
-      if (existing.archivedAt) {
-        // Unarchive
-        const restored = await prisma.ingredient.update({
-          where: { id: existing.id },
-          data: {
-            archivedAt: null,
-            unit: body.unit,
-            notes: body.notes ? sanitizeUserText(body.notes, 500) : existing.notes,
-            stockStatus: body.stockStatus || 'IN_STOCK',
-          },
-        });
-        return NextResponse.json({ ingredient: restored });
-      }
-      throw new AppError(409, `Ingredient "${body.name}" already exists.`, 'DUPLICATE_INGREDIENT');
+  if (existing) {
+    if (existing.archivedAt) {
+      // Unarchive
+      const restored = await prisma.ingredient.update({
+        where: { id: existing.id },
+        data: {
+          archivedAt: null,
+          unit: body.unit,
+          notes: body.notes ? sanitizeUserText(body.notes, 500) : existing.notes,
+          stockStatus: body.stockStatus || 'IN_STOCK',
+        },
+      });
+      return NextResponse.json({ ingredient: restored });
     }
-
-    const ingredient = await prisma.ingredient.create({
-      data: {
-        name: body.name,
-        unit: body.unit,
-        stockStatus: body.stockStatus || 'IN_STOCK',
-        notes: body.notes ? sanitizeUserText(body.notes, 500) : null,
-      },
-    });
-
-    await recordAuditLog({
-      actorUserId: staff.id,
-      actorRole: staff.role,
-      action: 'INGREDIENT_CREATED',
-      entityType: 'Ingredient',
-      entityId: ingredient.id,
-      metadata: { name: ingredient.name, unit: ingredient.unit },
-    });
-
-    return NextResponse.json({ ingredient }, { status: 201 });
-  } catch (err) {
-    return handleApiError(err);
+    throw new AppError(409, `Ingredient "${body.name}" already exists.`, 'DUPLICATE_INGREDIENT');
   }
-}
+
+  const ingredient = await prisma.ingredient.create({
+    data: {
+      name: body.name,
+      unit: body.unit,
+      stockStatus: body.stockStatus || 'IN_STOCK',
+      currentStock:
+        body.currentStock != null ? new Prisma.Decimal(body.currentStock) : new Prisma.Decimal(0),
+      lowStockThreshold:
+        body.lowStockThreshold != null
+          ? new Prisma.Decimal(body.lowStockThreshold)
+          : new Prisma.Decimal(0),
+      notes: body.notes ? sanitizeUserText(body.notes, 500) : null,
+    },
+  });
+
+  await recordAuditLog({
+    actorUserId: staff.id,
+    actorRole: staff.role,
+    action: 'INGREDIENT_CREATED',
+    entityType: 'Ingredient',
+    entityId: ingredient.id,
+    metadata: { name: ingredient.name, unit: ingredient.unit },
+  });
+
+  return NextResponse.json({ ingredient }, { status: 201 });
+});

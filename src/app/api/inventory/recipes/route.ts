@@ -1,15 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { recalculateMenuItemAvailability } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 import { parseJsonBody, saveRecipeSchema } from '@/lib/validators';
 
-export async function POST(req: NextRequest) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    const body = await parseJsonBody(req, saveRecipeSchema);
+export const POST = withStaffAuth(['manager', 'owner'], async (req, { actor: staff }) => {
+  const body = await parseJsonBody(req, saveRecipeSchema);
 
     const dish = await prisma.menuItem.findUnique({
       where: { id: body.menuItemId, archivedAt: null },
@@ -82,7 +80,4 @@ export async function POST(req: NextRequest) {
       message: `Recipe for "${dish.name}" saved successfully.`,
       availability: avail,
     });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

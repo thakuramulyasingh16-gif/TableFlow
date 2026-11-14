@@ -1,18 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { prisma } from '@/lib/prisma';
 import { sanitizeUserText } from '@/lib/sanitize';
 import { editPurchaseSchema, parseJsonBody } from '@/lib/validators';
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    const { id: rawId } = await params;
+export const PATCH = withStaffAuth<{ id: string }>(['manager', 'owner'], async (req, { params, actor: staff }) => {
+  const { id: rawId } = await params;
     const purchaseId = parseInt(rawId, 10);
     if (isNaN(purchaseId) || purchaseId <= 0) {
       throw new AppError(400, 'Invalid purchase ID', 'INVALID_ID');
@@ -38,8 +33,15 @@ export async function PATCH(
       updates.unit = body.unit;
     }
     if (body.totalCostRupees !== undefined) {
+      // API accepts totalCostRupees (e.g. ₹120.50) but strictly converts and stores integer paise (12050 paise)
       const paise = Math.round(body.totalCostRupees * 100);
-      if (paise <= 0) throw new AppError(400, 'Total cost must be greater than zero.', 'INVALID_AMOUNT');
+      if (paise <= 0) {
+        throw new AppError(
+          400,
+          'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+          'INVALID_AMOUNT'
+        );
+      }
       updates.totalCost = paise;
     }
     if (body.supplier !== undefined) {
@@ -73,7 +75,4 @@ export async function PATCH(
     });
 
     return NextResponse.json({ success: true, purchase: updated });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

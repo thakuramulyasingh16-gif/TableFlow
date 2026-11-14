@@ -7,6 +7,7 @@ import {
   BellRing,
   CheckCircle2,
   CreditCard,
+  Lock,
   Mail,
   Minus,
   Plus,
@@ -21,6 +22,7 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
+import { Locale, getTranslations } from '@/lib/i18n';
 import {
   Badge,
   Button,
@@ -106,12 +108,28 @@ interface CartItem {
 }
 
 interface MockCheckout {
+  provider?: 'razorpay';
   razorpayOrderId: string;
   amountPaise: number;
   currency: string;
   keyId: string;
   isMock: boolean;
 }
+
+interface UpiQrCheckout {
+  provider: 'upi_qr';
+  paymentId: number;
+  orderRef: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  upiId: string;
+  upiUri: string;
+  qrDataUrl: string;
+  restaurantName: string;
+}
+
+type CheckoutOrderResponse = MockCheckout | UpiQrCheckout;
 
 declare global {
   interface Window {
@@ -148,6 +166,7 @@ export function GuestDiningClient({
   const [fatalError, setFatalError] = useState('');
   const [table, setTable] = useState<{ id: number; tableNumber: string; label: string; zone: string } | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [realtimeChannel, setRealtimeChannel] = useState<string | null>(null);
   const [view, setView] = useState<'menu' | 'orders' | 'bill'>(initialView);
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -179,12 +198,48 @@ export function GuestDiningClient({
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [mockCheckout, setMockCheckout] = useState<MockCheckout | null>(null);
+  const [upiCheckout, setUpiCheckout] = useState<UpiQrCheckout | null>(null);
+  const [upiCopied, setUpiCopied] = useState(false);
   const [paymentSuccessBanner, setPaymentSuccessBanner] = useState(false);
+  const [requiresPin, setRequiresPin] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinSubmitting, setPinSubmitting] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [billRequested, setBillRequested] = useState(false);
+  const [locale, setLocale] = useState<Locale>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('tableflow_guest_locale');
+      if (saved === 'hi' || saved === 'en') return saved;
+    }
+    return 'en';
+  });
+
+  const t = useMemo(() => getTranslations(locale), [locale]);
+
+  function toggleLocale() {
+    setLocale((prev) => {
+      const next = prev === 'en' ? 'hi' : 'en';
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('tableflow_guest_locale', next);
+      }
+      return next;
+    });
+  }
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
   }, []);
+
+  const handleRequestPrintedBill = async () => {
+    try {
+      await apiFetch('/api/guest/bill/request', { method: 'POST', csrf: true });
+      setBillRequested(true);
+      showToast('Staff has been notified for your printed bill');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to request bill');
+    }
+  };
 
   const refreshOrdersAndBill = useCallback(async () => {
     const [ordRes, billRes] = await Promise.all([
@@ -195,37 +250,82 @@ export function GuestDiningClient({
     setBill(billRes);
   }, []);
 
+  const loadMenuAndData = useCallback(async () => {
+    const menuRes = await apiFetch<{ categories: Category[]; items: MenuItem[]; deals: Deal[] }>(
+      '/api/guest/menu'
+    );
+    setCategories(menuRes.categories || []);
+    setItems(menuRes.items || []);
+    setDeals(menuRes.deals || []);
+
+    const defMap: Record<number, number> = {};
+    for (const it of menuRes.items || []) {
+      const defVar = it.variants?.find((v) => v.isDefault) || it.variants?.[0];
+      if (defVar) defMap[it.id] = defVar.id;
+    }
+    setSelectedVariants(defMap);
+
+    await refreshOrdersAndBill();
+  }, [refreshOrdersAndBill]);
+
+  const handleJoinWithPin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pinInput.trim()) return;
+    setPinSubmitting(true);
+    setPinError('');
+    try {
+      const init = await apiFetch<{
+        table: { id: number; tableNumber: string; label: string; zone: string };
+        session: { id: number; realtimeChannel?: string };
+      }>('/api/guest/session', {
+        method: 'POST',
+        body: { tableToken, pin: pinInput.trim() },
+      });
+      setTable(init.table);
+      setSessionId(init.session.id);
+      if (init.session.realtimeChannel) {
+        setRealtimeChannel(init.session.realtimeChannel);
+      }
+      setRequiresPin(false);
+      setLoading(true);
+      await loadMenuAndData();
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : 'Invalid table PIN');
+    } finally {
+      setPinSubmitting(false);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         const init = await apiFetch<{
           table: { id: number; tableNumber: string; label: string; zone: string };
-          session: { id: number };
+          session?: { id: number; realtimeChannel?: string };
+          requiresPin?: boolean;
         }>('/api/guest/session', {
           method: 'POST',
           body: { tableToken },
         });
         if (!active) return;
         setTable(init.table);
-        setSessionId(init.session.id);
 
-        const menuRes = await apiFetch<{ categories: Category[]; items: MenuItem[]; deals: Deal[] }>(
-          '/api/guest/menu'
-        );
-        if (!active) return;
-        setCategories(menuRes.categories || []);
-        setItems(menuRes.items || []);
-        setDeals(menuRes.deals || []);
-
-        const defMap: Record<number, number> = {};
-        for (const it of menuRes.items || []) {
-          const defVar = it.variants?.find((v) => v.isDefault) || it.variants?.[0];
-          if (defVar) defMap[it.id] = defVar.id;
+        if (init.requiresPin) {
+          setRequiresPin(true);
+          setLoading(false);
+          return;
         }
-        setSelectedVariants(defMap);
 
-        await refreshOrdersAndBill();
+        if (init.session) {
+          setSessionId(init.session.id);
+          if (init.session.realtimeChannel) {
+            setRealtimeChannel(init.session.realtimeChannel);
+          }
+        }
+
+        await loadMenuAndData();
       } catch (err) {
         if (active) setFatalError(err instanceof Error ? err.message : 'Unable to load table session');
       } finally {
@@ -235,18 +335,19 @@ export function GuestDiningClient({
     return () => {
       active = false;
     };
-  }, [tableToken, refreshOrdersAndBill]);
+  }, [tableToken, loadMenuAndData]);
 
   useEffect(() => {
     if (!sessionId) return;
+    const channelToUse = realtimeChannel || `table_session:${sessionId}`;
     return subscribeRealtime(
-      `table_session:${sessionId}`,
+      channelToUse,
       ['order:updated', 'waiter:call_resolved', 'payment:captured'],
       () => {
         refreshOrdersAndBill().catch(() => {});
       }
     );
-  }, [sessionId, refreshOrdersAndBill]);
+  }, [sessionId, realtimeChannel, refreshOrdersAndBill]);
 
   useEffect(() => {
     if (waiterCooldown <= 0) return;
@@ -373,11 +474,16 @@ export function GuestDiningClient({
   async function startPayment(billSplitId: number | null = null) {
     try {
       const tipPaise = Math.max(0, Math.round(Number(tipRupees || 0) * 100));
-      const orderData = await apiFetch<MockCheckout>('/api/guest/payments/create-order', {
+      const orderData = await apiFetch<CheckoutOrderResponse>('/api/guest/payments/create-order', {
         method: 'POST',
         csrf: true,
         body: { billSplitId, tipPaise },
       });
+
+      if (orderData.provider === 'upi_qr') {
+        setUpiCheckout(orderData);
+        return;
+      }
 
       if (orderData.isMock || typeof window.Razorpay !== 'function') {
         setMockCheckout(orderData);
@@ -529,6 +635,58 @@ export function GuestDiningClient({
     );
   }
 
+  if (requiresPin) {
+    return (
+      <main className="min-h-screen bg-cream flex items-center justify-center p-5">
+        <Card className="p-6 max-w-sm w-full text-center space-y-4 shadow-card">
+          <div className="w-12 h-12 mx-auto rounded-full bg-mint-bg flex items-center justify-center text-leaf">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div>
+            <span className="px-3 py-1 rounded-full bg-ink text-sun-soft text-[12px] font-extrabold inline-block mb-2">
+              {table?.label || 'Table'}
+            </span>
+            <h1 className="text-[22px] font-extrabold text-ink">Enter Table PIN</h1>
+            <p className="text-[13px] text-muted mt-1">
+              A dining session is already active for this table. Ask your waiter or dining partner for the 4-digit PIN to join.
+            </p>
+          </div>
+
+          <form onSubmit={handleJoinWithPin} className="space-y-3">
+            <label htmlFor="table-pin-input" className="sr-only">Table PIN</label>
+            <input
+              id="table-pin-input"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              autoFocus
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+              placeholder="4-digit PIN"
+              className="w-full text-center tracking-[0.3em] font-mono text-[22px] font-extrabold min-h-[48px] px-4 py-2 rounded-[14px] bg-surface text-ink border-2 border-mint focus:border-leaf outline-none"
+            />
+
+            {pinError && (
+              <p className="text-[12px] font-bold text-tomato" role="alert">
+                {pinError}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              variant="leaf"
+              fullWidth
+              disabled={pinSubmitting || pinInput.trim().length < 4}
+            >
+              {pinSubmitting ? 'Joining...' : 'Join Table Session'}
+            </Button>
+          </form>
+        </Card>
+      </main>
+    );
+  }
+
   if (fatalError) {
     return (
       <main className="min-h-screen bg-cream flex items-center justify-center p-5">
@@ -554,19 +712,29 @@ export function GuestDiningClient({
         <header className="bg-signature-gradient rounded-b-[28px] p-5 shadow-card space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[12px] font-bold text-leaf uppercase tracking-wider">Welcome to</p>
+              <p className="text-[12px] font-bold text-leaf uppercase tracking-wider">{t.brandTagline}</p>
               <h1 className="text-[24px] font-extrabold text-ink leading-tight">{restaurantName}</h1>
               <p className="text-[12px] font-medium text-muted mt-0.5">{table?.zone}</p>
             </div>
-            <span className="px-3.5 py-2 rounded-full bg-ink text-sun-soft text-[13px] font-extrabold shrink-0">
-              {table?.label}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                aria-label="Toggle language"
+                className="px-2.5 py-1.5 rounded-full bg-cream text-leaf hover:bg-mint transition text-[12px] font-extrabold border border-leaf/30 shadow-xs cursor-pointer"
+              >
+                {locale === 'en' ? 'हिंदी' : 'EN'}
+              </button>
+              <span className="px-3.5 py-2 rounded-full bg-ink text-sun-soft text-[13px] font-extrabold">
+                {table?.label}
+              </span>
+            </div>
           </div>
 
           {view === 'menu' && (
             <div className="relative">
               <label htmlFor="guest-menu-search" className="sr-only">
-                Search menu dishes
+                {t.searchPlaceholder}
               </label>
               <Search className="w-4 h-4 text-muted absolute left-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
               <input
@@ -574,7 +742,7 @@ export function GuestDiningClient({
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search paneer, biryani, coolers..."
+                placeholder={t.searchPlaceholder}
                 className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-[14px] bg-surface text-ink placeholder:text-muted text-[14px] shadow-sm border border-mint"
               />
             </div>
@@ -606,9 +774,19 @@ export function GuestDiningClient({
             >
               <ArrowLeft className="w-4 h-4" /> Menu
             </button>
-            <span className="px-3 py-1.5 rounded-full bg-ink text-sun-soft text-[12px] font-extrabold">
-              {table?.label} {latestOrder ? `· ${latestOrder.orderNumber}` : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleLocale}
+                aria-label="Toggle language"
+                className="px-2.5 py-1.5 rounded-full bg-cream text-leaf hover:bg-mint transition text-[12px] font-extrabold border border-leaf/30 shadow-xs cursor-pointer"
+              >
+                {locale === 'en' ? 'हिंदी' : 'EN'}
+              </button>
+              <span className="px-3 py-1.5 rounded-full bg-ink text-sun-soft text-[12px] font-extrabold">
+                {table?.label} {latestOrder ? `· ${latestOrder.orderNumber}` : ''}
+              </span>
+            </div>
           </div>
           <div>
             <h1 className="text-[26px] font-extrabold text-ink leading-tight" aria-live="polite">
@@ -666,10 +844,10 @@ export function GuestDiningClient({
           {/* Category chips */}
           <section aria-label="Menu categories" className="flex gap-2 overflow-x-auto pb-1">
             <Chip active={selectedCategory === 'all'} onClick={() => setSelectedCategory('all')}>
-              All dishes
+              {t.allCategories}
             </Chip>
             <Chip active={vegOnly} onClick={() => setVegOnly((v) => !v)}>
-              Veg only
+              {t.vegOnly}
             </Chip>
             {categories.map((c) => (
               <Chip
@@ -761,7 +939,7 @@ export function GuestDiningClient({
                         {!item.isAvailable ? (
                           <div className="flex items-center gap-2">
                             <span className="px-2.5 py-1 rounded-full bg-tomato/15 text-tomato text-[12px] font-bold tracking-tight">
-                              Currently unavailable
+                              {t.soldOut}
                             </span>
                             <Button
                               variant="mint"
@@ -769,7 +947,7 @@ export function GuestDiningClient({
                               className="px-3 text-[13px] opacity-70 cursor-not-allowed"
                               aria-label={`${item.name} is currently unavailable`}
                             >
-                              Unavailable
+                              {t.soldOut}
                             </Button>
                           </div>
                         ) : (
@@ -779,7 +957,7 @@ export function GuestDiningClient({
                             className="px-4"
                             aria-label={`Add ${item.name} to order`}
                           >
-                            + Add
+                            + {t.add}
                           </Button>
                         )}
                       </div>
@@ -1005,21 +1183,47 @@ export function GuestDiningClient({
                     </div>
                   ) : (
                     <Button variant="leaf" fullWidth onClick={() => startPayment(null)}>
-                      Pay {formatInr(bill.remainingPaise + tipRupees * 100)} via Razorpay (UPI)
+                      {t.payBill} ({formatInr(bill.remainingPaise + tipRupees * 100)})
                     </Button>
                   )}
+
+                  <Button
+                    variant="mint"
+                    fullWidth
+                    onClick={handleRequestPrintedBill}
+                    disabled={billRequested}
+                  >
+                    {billRequested ? t.billRequestedBadge : t.requestBill}
+                  </Button>
                 </Card>
               )}
 
               {hasCapturedPayment && (
                 <div className="space-y-4">
-                  <Card className="p-5 bg-mint-bg space-y-2">
+                  <Card className="p-5 bg-mint-bg space-y-3">
                     <div className="flex items-center gap-2 text-leaf font-extrabold text-[17px]">
                       <CheckCircle2 className="w-5 h-5" /> Payment Complete!
                     </div>
                     <p className="text-[13px] text-ink">
-                      Thank you for dining with {restaurantName}. Get your GST invoice or leave a quick rating below.
+                      Thank you for dining with {restaurantName}. Get your official India GST tax invoice or leave a quick rating below.
                     </p>
+                    <Button
+                      type="button"
+                      variant="leaf"
+                      className="w-full flex items-center justify-center gap-2"
+                      onClick={async () => {
+                        try {
+                          const res = await apiFetch<{ invoice: { invoiceNumber: string } }>('/api/guest/invoice');
+                          if (res.invoice?.invoiceNumber) {
+                            window.open(`/invoice/${encodeURIComponent(res.invoice.invoiceNumber)}`, '_blank');
+                          }
+                        } catch (err) {
+                          setToast(err instanceof Error ? err.message : 'Unable to generate GST invoice');
+                        }
+                      }}
+                    >
+                      <Receipt className="w-4 h-4" /> View & Print GST Tax Invoice
+                    </Button>
                   </Card>
 
                   <Card className="p-5 space-y-3">
@@ -1137,7 +1341,7 @@ export function GuestDiningClient({
       )}
 
       {/* Cart & Checkout Sheet Modal */}
-      <Modal open={cartOpen} onClose={() => setCartOpen(false)} title="Your Order Cart" variant="sheet">
+      <Modal open={cartOpen} onClose={() => setCartOpen(false)} title={t.yourCart} variant="sheet">
         <div className="space-y-4">
           <div className="divide-y divide-mint">
             {cart.map((c, idx) => (
@@ -1195,7 +1399,7 @@ export function GuestDiningClient({
                 type="text"
                 value={orderNotes}
                 onChange={(e) => setOrderNotes(e.target.value)}
-                placeholder="e.g. Less spicy, nut allergy"
+                placeholder={t.specialInstructionsPlaceholder}
                 className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
               />
             </div>
@@ -1206,7 +1410,7 @@ export function GuestDiningClient({
           </div>
 
           <Button variant="leaf" fullWidth disabled={placingOrder} onClick={handlePlaceOrder}>
-            {placingOrder ? 'Sending to kitchen...' : `Place Order · Est. ${formatInr(cartEstSubtotal)} + GST`}
+            {placingOrder ? t.placingOrder : `${t.placeOrder} · Est. ${formatInr(cartEstSubtotal)} + GST`}
           </Button>
         </div>
       </Modal>
@@ -1230,6 +1434,81 @@ export function GuestDiningClient({
               </Button>
               <Button variant="leaf" onClick={completeMockPayment}>
                 Simulate UPI Pay
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Zero-Fee UPI QR Payment Modal */}
+      <Modal
+        open={Boolean(upiCheckout)}
+        onClose={() => setUpiCheckout(null)}
+        title="Zero-Fee UPI QR Payment"
+      >
+        {upiCheckout && (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <Badge tone="mint">Direct Bank UPI · Zero Convenience Fee</Badge>
+            </div>
+            <div>
+              <p className="text-[22px] font-extrabold text-leaf">
+                {formatInr(upiCheckout.amountPaise)}
+              </p>
+              <p className="text-[12px] text-muted">
+                Pay to {upiCheckout.restaurantName}
+              </p>
+            </div>
+
+            {/* Rendered QR Code */}
+            <div className="flex flex-col items-center justify-center p-3 bg-surface rounded-2xl border-2 border-sun/40">
+              <img
+                src={upiCheckout.qrDataUrl}
+                alt="UPI QR Code"
+                className="w-56 h-56 rounded-xl border border-sun/30"
+              />
+              <p className="text-[11px] text-muted mt-2">
+                Scan with GPay, PhonePe, Paytm, or BHIM
+              </p>
+            </div>
+
+            {/* UPI ID with copy button */}
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-cream border border-sun/40 text-[12px]">
+              <span className="font-mono text-ink font-bold">{upiCheckout.upiId}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(upiCheckout.upiId);
+                  setUpiCopied(true);
+                  setTimeout(() => setUpiCopied(false), 2000);
+                }}
+                className="text-[11px] font-bold text-leaf hover:underline ml-2"
+              >
+                {upiCopied ? 'Copied!' : 'Copy UPI ID'}
+              </button>
+            </div>
+
+            {/* Deep link button on mobile */}
+            <a
+              href={upiCheckout.upiUri}
+              className="inline-flex w-full items-center justify-center rounded-xl bg-leaf py-2.5 text-[14px] font-extrabold text-white shadow-soft transition hover:bg-leaf/90"
+            >
+              Open in UPI App
+            </a>
+
+            <div className="pt-2 border-t border-sun/20 space-y-2">
+              <p className="text-[11px] text-muted">
+                After paying, please notify your waiter. Waitstaff will confirm the transaction at your table.
+              </p>
+              <Button
+                variant="mint"
+                fullWidth
+                onClick={async () => {
+                  await refreshOrdersAndBill();
+                  showToast('Checking payment status...');
+                }}
+              >
+                I Have Paid / Check Status
               </Button>
             </div>
           </div>

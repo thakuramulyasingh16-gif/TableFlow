@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { getDishesUsingIngredient, syncAvailabilityForIngredient } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
@@ -9,15 +9,10 @@ import { broadcastRealtime } from '@/lib/realtime';
 import { sanitizeUserText } from '@/lib/sanitize';
 import { parseJsonBody, toggleStockStatusSchema } from '@/lib/validators';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const staff = await requireStaffAuth(['chef', 'manager', 'owner']);
-    await enforceRateLimit('stock_toggle', `${getClientIp(req)}:${staff.id}`);
+export const POST = withStaffAuth<{ id: string }>(['chef', 'manager', 'owner'], async (req, { params, actor: staff }) => {
+  await enforceRateLimit('stock_toggle', `${getClientIp(req)}:${staff.id}`);
 
-    const { id: rawId } = await params;
+  const { id: rawId } = await params;
     const ingredientId = parseInt(rawId, 10);
     if (isNaN(ingredientId) || ingredientId <= 0) {
       throw new AppError(400, 'Invalid ingredient ID', 'INVALID_ID');
@@ -116,16 +111,17 @@ export async function POST(
         });
       }
 
+      // Synchronize availability on all dishes using this ingredient inside the transaction
+      // so stock status and dish availability cannot drift
+      const { affectedDishes: syncedDishNames } = await syncAvailabilityForIngredient(ingredient.id, tx);
+
       return {
         updated,
-        affectedDishNames,
+        affectedDishNames: syncedDishNames.length > 0 ? syncedDishNames : affectedDishNames,
         alertCreated: createdAlertId !== null,
         createdAlertId,
       };
     });
-
-    // 4. Synchronize availability on all dishes using this ingredient
-    await syncAvailabilityForIngredient(ingredient.id);
 
     // 5. Audit Log
     await recordAuditLog({
@@ -143,14 +139,13 @@ export async function POST(
       },
     });
 
-    // 6. Broadcast Realtime Updates to staff channel
-    await broadcastRealtime('staff', 'INVENTORY_STOCK_CHANGED', {
+    // 6. Broadcast Realtime Updates to staff channel (sanitized, no staff names)
+    await broadcastRealtime('inventory', 'INVENTORY_STOCK_CHANGED', {
       ingredientId: ingredient.id,
       ingredientName: ingredient.name,
       fromStatus: previousStatus,
       toStatus: newStatus,
       affectedDishes: result.affectedDishNames,
-      changedBy: staff.name,
       role: staff.role,
       alertCreated: result.alertCreated,
     }).catch(() => {});
@@ -162,7 +157,4 @@ export async function POST(
       alertCreated: result.alertCreated,
       createdAlertId: result.createdAlertId,
     });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

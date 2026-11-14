@@ -33,9 +33,13 @@ const envSchema = z.object({
   RAZORPAY_KEY_SECRET: z.string().optional().default(''),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional().default(''),
   NEXT_PUBLIC_RAZORPAY_KEY_ID: z.string().optional().default(''),
+  PAYMENTS_MOCK: z.string().optional().default('false'),
 
   RESEND_API_KEY: z.string().optional().default(''),
   RESEND_FROM: z.string().default('TableFlow Receipts <onboarding@resend.dev>'),
+
+  SENTRY_DSN: z.string().optional().default(''),
+  NEXT_PUBLIC_SENTRY_DSN: z.string().optional().default(''),
 });
 
 export type AppEnv = Readonly<
@@ -43,6 +47,7 @@ export type AppEnv = Readonly<
     corsOrigins: string[];
     isProd: boolean;
     isTest: boolean;
+    isPaymentsMock: boolean;
   }
 >;
 
@@ -72,6 +77,7 @@ export function loadEnv(rawEnv: Record<string, string | undefined> = process.env
       .filter(Boolean),
     isProd: data.NODE_ENV === 'production',
     isTest: data.NODE_ENV === 'test',
+    isPaymentsMock: data.NODE_ENV !== 'production' && data.PAYMENTS_MOCK === 'true',
   });
 }
 

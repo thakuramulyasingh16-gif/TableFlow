@@ -1,14 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { prisma } from '@/lib/prisma';
 import { bulkDeleteDishesSchema, parseJsonBody } from '@/lib/validators';
 
-export async function POST(req: NextRequest) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    const body = await parseJsonBody(req, bulkDeleteDishesSchema);
+export const POST = withStaffAuth(['manager', 'owner'], async (req, { actor: staff }) => {
+  const body = await parseJsonBody(req, bulkDeleteDishesSchema);
 
     if (body.confirmationText !== 'DELETE') {
       throw new AppError(400, 'Confirmation text must be exact word "DELETE".', 'CONFIRMATION_REQUIRED');
@@ -56,7 +54,4 @@ export async function POST(req: NextRequest) {
       message: `${affectedCount} dish(es) soft-deleted successfully.`,
       count: affectedCount,
     });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});

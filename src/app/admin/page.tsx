@@ -14,9 +14,11 @@ import {
   Plus,
   QrCode,
   RefreshCw,
+  Settings,
   Shield,
   ShoppingCart,
   Tag,
+  Upload,
   Users,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
@@ -26,6 +28,7 @@ import { AdminIngredientItem, IngredientsTab } from '@/components/admin/Ingredie
 import { AdminDishItem, MenuInventoryTab } from '@/components/admin/MenuInventoryTab';
 import { PurchasesTab } from '@/components/admin/PurchasesTab';
 import { ReportsTab } from '@/components/admin/ReportsTab';
+import { SettingsTab } from '@/components/admin/SettingsTab';
 import { Badge, Button, Card, Toast } from '@/components/ui';
 
 interface CatalogData {
@@ -71,7 +74,7 @@ export default function AdminPage() {
   const user = session?.user as { name?: string; role?: string } | undefined;
 
   const [tab, setTab] = useState<
-    'menu' | 'deals' | 'ingredients' | 'alerts' | 'purchases' | 'reports' | 'tables' | 'staff' | 'orders'
+    'menu' | 'deals' | 'ingredients' | 'alerts' | 'purchases' | 'reports' | 'tables' | 'staff' | 'orders' | 'settings'
   >('menu');
 
   const [catalog, setCatalog] = useState<CatalogData>({ categories: [], stations: [], items: [], deals: [] });
@@ -92,6 +95,7 @@ export default function AdminPage() {
     description: '',
     imageUrl: '',
   });
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [newStaff, setNewStaff] = useState({
     name: '',
@@ -150,6 +154,47 @@ export default function AdminPage() {
       return () => clearTimeout(timer);
     }
   }, [status, router, loadData, showToast]);
+
+  async function handleDishImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 3 * 1024 * 1024) {
+      showToast('Image file exceeds 3 MB limit');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const csrfCookie = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('tf_csrf='))
+        ?.split('=')[1];
+
+      const res = await fetch('/api/admin/menu/upload', {
+        method: 'POST',
+        headers: csrfCookie ? { 'X-CSRF-Token': csrfCookie } : {},
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || errorData.message || 'Upload failed');
+      }
+
+      const data = await res.json();
+      setNewItem((p) => ({ ...p, imageUrl: data.url }));
+      showToast('Dish photo uploaded successfully!');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Image upload failed');
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
+    }
+  }
 
   async function handleCreateItem(e: React.FormEvent) {
     e.preventDefault();
@@ -276,11 +321,29 @@ export default function AdminPage() {
             { id: 'purchases', label: 'Purchases', icon: ShoppingCart },
             { id: 'reports', label: 'Financial Reports', icon: PieChart },
             { id: 'tables', label: 'Tables & QRs', icon: QrCode },
-            ...(user?.role === 'owner' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users }] : []),
+            ...(user?.role === 'owner'
+              ? [
+                  { id: 'staff', label: 'Staff & Roles', icon: Users },
+                  { id: 'audit', label: 'Audit Logs', icon: Shield, href: '/admin/audit-logs' },
+                ]
+              : []),
             { id: 'orders', label: 'Orders & Payments', icon: RefreshCw },
+            { id: 'settings', label: 'Settings & Taxes', icon: Settings },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
+            if (t.href) {
+              return (
+                <Link
+                  key={t.id}
+                  href={t.href}
+                  className="min-h-[42px] px-4 rounded-full text-[13px] font-extrabold transition flex items-center gap-1.5 cursor-pointer bg-mint-bg text-leaf hover:bg-mint"
+                >
+                  <Icon className="w-4 h-4" />
+                  {t.label}
+                </Link>
+              );
+            }
             return (
               <button
                 key={t.id}
@@ -389,6 +452,39 @@ export default function AdminPage() {
                     onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
                     className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
+                </div>
+                <div className="sm:col-span-2 flex items-center gap-3 p-3 rounded-[12px] bg-cream border border-leaf/20">
+                  {newItem.imageUrl ? (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={newItem.imageUrl}
+                        alt="Dish preview"
+                        className="w-12 h-12 object-cover rounded-lg border border-sun"
+                      />
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-bold text-ink truncate max-w-xs">{newItem.imageUrl}</span>
+                        <button
+                          type="button"
+                          onClick={() => setNewItem((p) => ({ ...p, imageUrl: '' }))}
+                          className="text-[11px] font-extrabold text-tomato hover:underline text-left mt-0.5"
+                        >
+                          Remove photo
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 text-[13px] font-bold text-leaf cursor-pointer hover:underline">
+                      <Upload className="w-4 h-4" />
+                      {uploadingImage ? 'Uploading photo...' : 'Upload Dish Photo (JPEG/PNG/WebP, max 3MB)'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={uploadingImage}
+                        onChange={handleDishImageUpload}
+                        className="sr-only"
+                      />
+                    </label>
+                  )}
                 </div>
                 <Button type="submit" variant="sun" className="min-h-[44px] font-extrabold">
                   Add Dish
@@ -639,6 +735,11 @@ export default function AdminPage() {
               </div>
             </Card>
           </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {tab === 'settings' && (
+          <SettingsTab userRole={user?.role} showToast={showToast} />
         )}
       </main>
     </div>

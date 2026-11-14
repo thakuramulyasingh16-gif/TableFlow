@@ -1,20 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { AppError, handleApiError } from '@/lib/api-error';
+import { NextResponse } from 'next/server';
+import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
-import { requireStaffAuth } from '@/lib/auth-guard';
+import { withStaffAuth } from '@/lib/auth-guard';
 import { syncAvailabilityForIngredient } from '@/lib/inventory/availability';
 import { prisma } from '@/lib/prisma';
 import { broadcastRealtime } from '@/lib/realtime';
 import { sanitizeUserText } from '@/lib/sanitize';
 import { acknowledgeAlertSchema, parseJsonBody } from '@/lib/validators';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const staff = await requireStaffAuth(['manager', 'owner']);
-    const { id: rawId } = await params;
+export const POST = withStaffAuth<{ id: string }>(['manager', 'owner'], async (req, { params, actor: staff }) => {
+  const { id: rawId } = await params;
     const alertId = parseInt(rawId, 10);
     if (isNaN(alertId) || alertId <= 0) {
       throw new AppError(400, 'Invalid alert ID', 'INVALID_ID');
@@ -41,10 +36,14 @@ export async function POST(
       });
     }
 
-    // Convert rupees to integer paise
+    // Convert rupees to integer paise; reject amounts rounding to 0 paise
     const totalCostPaise = Math.round(body.totalCostRupees * 100);
     if (totalCostPaise <= 0) {
-      throw new AppError(400, 'Total cost must be greater than zero.', 'INVALID_AMOUNT');
+      throw new AppError(
+        400,
+        'Total cost must be at least ₹0.01 (1 paisa). Amounts rounding to 0 paise are rejected.',
+        'INVALID_AMOUNT'
+      );
     }
 
     const purchasedAtDate = body.purchasedAt ? new Date(body.purchasedAt) : new Date();
@@ -99,11 +98,11 @@ export async function POST(
         },
       });
 
+      // 5. Synchronize availability on affected dishes inside transaction
+      await syncAvailabilityForIngredient(alert.ingredientId, tx);
+
       return { purchase, updatedAlert };
     });
-
-    // 5. Synchronize availability on affected dishes
-    await syncAvailabilityForIngredient(alert.ingredientId);
 
     // 6. Audit log
     await recordAuditLog({
@@ -121,11 +120,11 @@ export async function POST(
       },
     });
 
-    // 7. Broadcast realtime update
-    await broadcastRealtime('staff', 'INVENTORY_ALERT_ACKNOWLEDGED', {
+    // 7. Broadcast realtime update (sanitized, no staff names)
+    await broadcastRealtime('inventory', 'INVENTORY_ALERT_ACKNOWLEDGED', {
       alertId: alert.id,
       ingredientName: alert.ingredient.name,
-      acknowledgedBy: staff.name,
+      actorRole: staff.role,
     }).catch(() => {});
 
     return NextResponse.json({
@@ -133,7 +132,4 @@ export async function POST(
       alert: result.updatedAlert,
       purchase: result.purchase,
     });
-  } catch (err) {
-    return handleApiError(err);
-  }
-}
+});
