@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Nunito } from 'next/font/google';
+import { headers } from 'next/headers';
 import Script from 'next/script';
 import { SessionProvider } from 'next-auth/react';
 import './globals.css';
@@ -16,12 +17,15 @@ export const metadata: Metadata = {
   description: 'QR-based restaurant ordering, live kitchen display, floor management, and UPI payments.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const headerStore = await headers();
+  const nonce = headerStore.get('x-nonce') || undefined;
+
   return (
     <html lang="en" className={nunito.variable}>
       <body className="min-h-screen bg-cream text-ink font-sans antialiased">
         <SessionProvider>{children}</SessionProvider>
-        <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+        <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" nonce={nonce} />
       </body>
     </html>
   );
