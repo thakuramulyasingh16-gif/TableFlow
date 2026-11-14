@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'node:crypto';
 import { applyCorsHeaders, isOriginAllowed } from './lib/cors';
+
+function generateNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+}
 
 export function buildCsp(nonce: string, isDev: boolean): string {
   const scriptSrc = isDev
@@ -45,7 +54,7 @@ export function middleware(req: NextRequest) {
   }
 
   // 2. Nonce-based CSP for document requests
-  const nonce = crypto.randomBytes(16).toString('base64');
+  const nonce = generateNonce();
   const csp = buildCsp(nonce, isDev);
 
   const requestHeaders = new Headers(req.headers);
@@ -68,4 +77,3 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
-

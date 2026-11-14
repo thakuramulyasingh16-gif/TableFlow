@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('TableFlow Guest Dining E2E Smoke Flow', () => {
   test('Guest scans table QR, views bilingual menu, configures cart, and proceeds with ordering', async ({ page }) => {
-    // 1. Guest scans QR and lands on Table 1
-    await page.goto('/table/mock-table-1');
+    // 1. Guest scans QR and lands on Table T3
+    await page.goto('/t/f-JTccy6P4JzLO9WxYd2Tzhth0_yv1lIxVglNMO1pyc');
 
     // Verify Title and branding
     await expect(page).toHaveTitle(/TableFlow/i);
