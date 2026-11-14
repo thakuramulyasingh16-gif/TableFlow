@@ -7,6 +7,7 @@ import { getEnv } from '@/lib/env';
 import { GUEST_COOKIE_NAME, setGuestSessionCookie } from '@/lib/guest-session';
 import { prisma } from '@/lib/prisma';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
+import { getSessionRealtimeChannel } from '@/lib/realtime';
 import { initGuestSessionSchema, parseJsonBody } from '@/lib/validators';
 
 export async function POST(req: NextRequest) {
@@ -39,7 +40,12 @@ export async function POST(req: NextRequest) {
         if (existingSession) {
           const res = NextResponse.json({
             table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
-            session: { id: existingSession.id, status: existingSession.status, expiresAt: existingSession.expiresAt },
+            session: {
+              id: existingSession.id,
+              status: existingSession.status,
+              expiresAt: existingSession.expiresAt,
+              realtimeChannel: getSessionRealtimeChannel(existingSession.id),
+            },
             joinPin: existingSession.joinPin,
           });
           setCsrfCookie(res);
@@ -88,7 +94,12 @@ export async function POST(req: NextRequest) {
 
       const res = NextResponse.json({
         table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
-        session: { id: activeSession.id, status: activeSession.status, expiresAt: activeSession.expiresAt },
+        session: {
+          id: activeSession.id,
+          status: activeSession.status,
+          expiresAt: activeSession.expiresAt,
+          realtimeChannel: getSessionRealtimeChannel(activeSession.id),
+        },
         joinPin: activeSession.joinPin,
       });
       setGuestSessionCookie(res, rawToken, activeSession.expiresAt);
@@ -142,7 +153,12 @@ export async function POST(req: NextRequest) {
     const res = NextResponse.json(
       {
         table: { id: table.id, tableNumber: table.tableNumber, label: table.label, zone: table.zone },
-        session: { id: session.id, status: session.status, expiresAt: session.expiresAt },
+        session: {
+          id: session.id,
+          status: session.status,
+          expiresAt: session.expiresAt,
+          realtimeChannel: getSessionRealtimeChannel(session.id),
+        },
         joinPin: session.joinPin,
       },
       { status: 201 }

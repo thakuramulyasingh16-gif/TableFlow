@@ -149,6 +149,7 @@ export function GuestDiningClient({
   const [fatalError, setFatalError] = useState('');
   const [table, setTable] = useState<{ id: number; tableNumber: string; label: string; zone: string } | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [realtimeChannel, setRealtimeChannel] = useState<string | null>(null);
   const [view, setView] = useState<'menu' | 'orders' | 'bill'>(initialView);
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -237,13 +238,16 @@ export function GuestDiningClient({
     try {
       const init = await apiFetch<{
         table: { id: number; tableNumber: string; label: string; zone: string };
-        session: { id: number };
+        session: { id: number; realtimeChannel?: string };
       }>('/api/guest/session', {
         method: 'POST',
         body: { tableToken, pin: pinInput.trim() },
       });
       setTable(init.table);
       setSessionId(init.session.id);
+      if (init.session.realtimeChannel) {
+        setRealtimeChannel(init.session.realtimeChannel);
+      }
       setRequiresPin(false);
       setLoading(true);
       await loadMenuAndData();
@@ -261,7 +265,7 @@ export function GuestDiningClient({
       try {
         const init = await apiFetch<{
           table: { id: number; tableNumber: string; label: string; zone: string };
-          session?: { id: number };
+          session?: { id: number; realtimeChannel?: string };
           requiresPin?: boolean;
         }>('/api/guest/session', {
           method: 'POST',
@@ -278,6 +282,9 @@ export function GuestDiningClient({
 
         if (init.session) {
           setSessionId(init.session.id);
+          if (init.session.realtimeChannel) {
+            setRealtimeChannel(init.session.realtimeChannel);
+          }
         }
 
         await loadMenuAndData();
@@ -294,14 +301,15 @@ export function GuestDiningClient({
 
   useEffect(() => {
     if (!sessionId) return;
+    const channelToUse = realtimeChannel || `table_session:${sessionId}`;
     return subscribeRealtime(
-      `table_session:${sessionId}`,
+      channelToUse,
       ['order:updated', 'waiter:call_resolved', 'payment:captured'],
       () => {
         refreshOrdersAndBill().catch(() => {});
       }
     );
-  }, [sessionId, refreshOrdersAndBill]);
+  }, [sessionId, realtimeChannel, refreshOrdersAndBill]);
 
   useEffect(() => {
     if (waiterCooldown <= 0) return;

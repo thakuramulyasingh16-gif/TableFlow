@@ -116,11 +116,11 @@ export const POST = withStaffAuth<{ id: string }>(['manager', 'owner'], async (r
       },
     });
 
-    // 7. Broadcast realtime update
-    await broadcastRealtime('staff', 'INVENTORY_ALERT_ACKNOWLEDGED', {
+    // 7. Broadcast realtime update (sanitized, no staff names)
+    await broadcastRealtime('inventory', 'INVENTORY_ALERT_ACKNOWLEDGED', {
       alertId: alert.id,
       ingredientName: alert.ingredient.name,
-      acknowledgedBy: staff.name,
+      actorRole: staff.role,
     }).catch(() => {});
 
     return NextResponse.json({

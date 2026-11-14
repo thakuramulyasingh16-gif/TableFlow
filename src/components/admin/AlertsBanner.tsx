@@ -105,13 +105,12 @@ export function AlertsBanner({
       void loadAlerts();
     }, 0);
     const unsub = subscribeRealtime(
-      'staff',
+      'inventory',
       ['INVENTORY_STOCK_CHANGED', 'INVENTORY_STOCK_RECEIVED'],
       () => {
         void loadAlerts();
         void onRefreshData();
-      },
-      8000
+      }
     );
 
     return () => {

@@ -138,14 +138,13 @@ export const POST = withStaffAuth<{ id: string }>(['chef', 'manager', 'owner'], 
       },
     });
 
-    // 6. Broadcast Realtime Updates to staff channel
-    await broadcastRealtime('staff', 'INVENTORY_STOCK_CHANGED', {
+    // 6. Broadcast Realtime Updates to staff channel (sanitized, no staff names)
+    await broadcastRealtime('inventory', 'INVENTORY_STOCK_CHANGED', {
       ingredientId: ingredient.id,
       ingredientName: ingredient.name,
       fromStatus: previousStatus,
       toStatus: newStatus,
       affectedDishes: result.affectedDishNames,
-      changedBy: staff.name,
       role: staff.role,
       alertCreated: result.alertCreated,
     }).catch(() => {});

@@ -96,12 +96,12 @@ export const POST = withStaffAuth<{ id: string }>(['chef', 'manager', 'owner'], 
       },
     });
 
-    // 7. Broadcast realtime event
-    await broadcastRealtime('staff', 'INVENTORY_STOCK_RECEIVED', {
+    // 7. Broadcast realtime event (sanitized, no staff names)
+    await broadcastRealtime('inventory', 'INVENTORY_STOCK_RECEIVED', {
       alertId: alert.id,
       ingredientId: alert.ingredientId,
       ingredientName: alert.ingredient.name,
-      receivedBy: staff.name,
+      actorRole: staff.role,
       affectedDishes,
     }).catch(() => {});
 
