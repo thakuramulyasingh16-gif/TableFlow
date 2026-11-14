@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -14,10 +14,13 @@ import {
   RefreshCw,
   Sparkles,
   Utensils,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
+import { playChime } from '@/lib/sound';
 import { Badge, Button, Card, Modal, Skeleton, Toast } from '@/components/ui';
 
 interface FloorTable {
@@ -49,6 +52,7 @@ interface StaffOrder {
     quantity: number;
     itemNameSnapshot: string;
     variantNameSnapshot?: string | null;
+    specialInstructions?: string | null;
     status: string;
   }[];
 }
@@ -106,6 +110,21 @@ export default function StaffPage() {
   const [calls, setCalls] = useState<WaiterCall[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+  const [soundEnabled, setSoundEnabled] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('tableflow_sound_enabled') === 'true' : false
+  );
+  const prevOrdersCountRef = useRef(0);
+  const prevCallsCountRef = useRef(0);
+
+  function toggleSound() {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('tableflow_sound_enabled', String(next));
+      }
+      return next;
+    });
+  }
 
   const [payingTable, setPayingTable] = useState<FloorTable | null>(null);
   const [collectAmountRupees, setCollectAmountRupees] = useState('');
@@ -120,15 +139,30 @@ export default function StaffPage() {
         apiFetch<{ orders: StaffOrder[] }>('/api/staff/orders'),
         apiFetch<{ calls: WaiterCall[] }>('/api/staff/waiter-calls'),
       ]);
+
+      const nextOrders = ordersRes.orders || [];
+      const nextCalls = callsRes.calls || [];
+
+      if (soundEnabled) {
+        if (prevCallsCountRef.current > 0 && nextCalls.length > prevCallsCountRef.current) {
+          playChime('waiter_call');
+        } else if (prevOrdersCountRef.current > 0 && nextOrders.length > prevOrdersCountRef.current) {
+          playChime('new_order');
+        }
+      }
+
+      prevOrdersCountRef.current = nextOrders.length;
+      prevCallsCountRef.current = nextCalls.length;
+
       setTables(floorRes.tables || []);
-      setOrders(ordersRes.orders || []);
-      setCalls(callsRes.calls || []);
+      setOrders(nextOrders);
+      setCalls(nextCalls);
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Unable to load floor data');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [soundEnabled]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -179,11 +213,6 @@ export default function StaffPage() {
     await loadAll();
   }
 
-  async function resetTableFree(tableId: number) {
-    await apiFetch(`/api/staff/tables/${tableId}/status`, { method: 'PATCH', body: { status: 'free' } });
-    await loadAll();
-  }
-
   async function confirmUpi(paymentId: number) {
     try {
       await apiFetch('/api/staff/payments/confirm-upi', {
@@ -195,6 +224,33 @@ export default function StaffPage() {
       await loadAll();
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Failed to confirm UPI payment');
+      setTimeout(() => setToast(''), 2500);
+    }
+  }
+
+  async function handleOpenTable(tableId: number) {
+    try {
+      const res = await apiFetch<{ table: FloorTable; session: { joinPin: string } }>(
+        `/api/staff/tables/${tableId}/open`,
+        { method: 'POST', body: {} }
+      );
+      setToast(`Table opened! Guest PIN is ${res.session.joinPin}`);
+      setTimeout(() => setToast(''), 3500);
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to open table');
+      setTimeout(() => setToast(''), 2500);
+    }
+  }
+
+  async function handleCloseTable(tableId: number) {
+    try {
+      await apiFetch(`/api/staff/tables/${tableId}/close`, { method: 'POST', body: {} });
+      setToast('Table closed and marked free.');
+      setTimeout(() => setToast(''), 2500);
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to close table');
       setTimeout(() => setToast(''), 2500);
     }
   }
@@ -286,6 +342,15 @@ export default function StaffPage() {
                 </Link>
               </>
             )}
+            <button
+              type="button"
+              onClick={toggleSound}
+              aria-pressed={soundEnabled}
+              className="min-h-[44px] px-3.5 rounded-[14px] bg-surface text-ink text-[13px] font-bold inline-flex items-center gap-1.5 shadow-sm hover:bg-cream cursor-pointer transition"
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4 text-leaf" /> : <VolumeX className="w-4 h-4 text-muted" />}
+              {soundEnabled ? 'Sound on' : 'Sound off'}
+            </button>
             <button
               type="button"
               aria-label="Refresh floor"
@@ -381,7 +446,16 @@ export default function StaffPage() {
                         </Button>
                       </div>
                     )}
-                    {t.status !== 'free' && t.activeSessionId ? (
+                    {t.status === 'free' ? (
+                      <Button
+                        variant="leaf"
+                        fullWidth
+                        onClick={() => void handleOpenTable(t.id)}
+                        className="text-[12px] py-1.5 flex items-center justify-center gap-1 font-extrabold"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Open Table
+                      </Button>
+                    ) : (
                       <div className="flex gap-1.5 pt-1">
                         <Button
                           variant="sun"
@@ -391,21 +465,16 @@ export default function StaffPage() {
                         >
                           <Banknote className="w-3.5 h-3.5" /> Collect Bill
                         </Button>
-                        {t.activeOrderCount === 0 && (
-                          <Button
-                            variant="mint"
-                            onClick={() => void resetTableFree(t.id)}
-                            className="text-[12px] py-1.5 px-2.5"
-                          >
-                            Free
-                          </Button>
-                        )}
+                        <Button
+                          variant="mint"
+                          onClick={() => void handleCloseTable(t.id)}
+                          title="Close table and mark free"
+                          className="text-[12px] py-1.5 px-2.5"
+                        >
+                          Close
+                        </Button>
                       </div>
-                    ) : t.status !== 'free' && t.activeOrderCount === 0 ? (
-                      <Button variant="mint" fullWidth onClick={() => void resetTableFree(t.id)}>
-                        Mark Free
-                      </Button>
-                    ) : null}
+                    )}
                   </Card>
                 );
               })}
@@ -432,12 +501,19 @@ export default function StaffPage() {
                     </div>
                     <ul className="mt-3 space-y-1.5 text-[14px] border-t border-mint pt-2.5">
                       {ord.items.map((it) => (
-                        <li key={it.id} className="flex justify-between gap-2">
-                          <span className="font-medium text-ink">
-                            {it.quantity}× {it.itemNameSnapshot}
-                            {it.variantNameSnapshot ? ` (${it.variantNameSnapshot})` : ''}
-                          </span>
-                          <span className="text-[12px] font-bold text-muted capitalize">{it.status}</span>
+                        <li key={it.id} className="space-y-0.5">
+                          <div className="flex justify-between gap-2">
+                            <span className="font-medium text-ink">
+                              {it.quantity}× {it.itemNameSnapshot}
+                              {it.variantNameSnapshot ? ` (${it.variantNameSnapshot})` : ''}
+                            </span>
+                            <span className="text-[12px] font-bold text-muted capitalize">{it.status}</span>
+                          </div>
+                          {it.specialInstructions && (
+                            <div className="text-[11px] font-bold text-tomato">
+                              Note: {it.specialInstructions}
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>

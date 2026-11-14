@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ChefHat, LogOut, RefreshCw, Volume2, VolumeX } from 'lucide-react';
+import { AlertTriangle, ChefHat, LogOut, Printer, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { elapsedMinutes } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
+import { playChime } from '@/lib/sound';
+import { PrintableKotModal, KotTicket } from '@/components/kitchen/PrintableKotModal';
 import { Badge, Button, Card, Chip, Skeleton, TimerChip, Toast } from '@/components/ui';
 
 interface KitchenItem {
@@ -33,27 +35,6 @@ interface StationGroup {
   tickets: KitchenTicket[];
 }
 
-function playNewOrderChime() {
-  try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(660, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.14);
-    gain.gain.setValueAtTime(0.08, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.32);
-  } catch {
-    // Ignore autoplay blocks
-  }
-}
-
 export default function KitchenPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -62,10 +43,23 @@ export default function KitchenPage() {
   const [stations, setStations] = useState<StationGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCode, setSelectedCode] = useState('all');
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('tableflow_sound_enabled') === 'true' : false
+  );
+  const [activeKot, setActiveKot] = useState<KotTicket | null>(null);
   const [toast, setToast] = useState('');
   const [, setTick] = useState(0);
   const prevCountRef = useRef<number>(0);
+
+  function toggleSound() {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('tableflow_sound_enabled', String(next));
+      }
+      return next;
+    });
+  }
 
   const loadQueue = useCallback(async () => {
     try {
@@ -73,7 +67,7 @@ export default function KitchenPage() {
       const nextStations = res.stations || [];
       const totalActive = nextStations.reduce((acc, g) => acc + g.tickets.length, 0);
       if (soundEnabled && prevCountRef.current > 0 && totalActive > prevCountRef.current) {
-        playNewOrderChime();
+        playChime('new_order');
       }
       prevCountRef.current = totalActive;
       setStations(nextStations);
@@ -193,7 +187,7 @@ export default function KitchenPage() {
             <Badge tone="sun">{totalActiveCount} active</Badge>
             <button
               type="button"
-              onClick={() => setSoundEnabled((s) => !s)}
+              onClick={toggleSound}
               aria-pressed={soundEnabled}
               className="min-h-[44px] px-3.5 rounded-full bg-surface/15 text-surface text-[13px] font-bold inline-flex items-center gap-1.5 hover:bg-surface/25 cursor-pointer"
             >
@@ -279,7 +273,17 @@ export default function KitchenPage() {
                             <span className="text-[16px] font-extrabold text-ink">
                               {t.table?.label} · {t.orderNumber}
                             </span>
-                            <TimerChip since={t.confirmedAt} />
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setActiveKot({ ...t, stationName: station.name })}
+                                title="Print KOT ticket"
+                                className="px-2 py-1 rounded-md bg-cream text-leaf hover:bg-mint transition text-[11px] font-extrabold flex items-center gap-1 border border-leaf/30 cursor-pointer shadow-xs"
+                              >
+                                <Printer className="w-3.5 h-3.5" /> KOT
+                              </button>
+                              <TimerChip since={t.confirmedAt} />
+                            </div>
                           </div>
 
                           {t.notes && (
@@ -342,6 +346,8 @@ export default function KitchenPage() {
           </div>
         )}
       </main>
+
+      <PrintableKotModal ticket={activeKot} onClose={() => setActiveKot(null)} />
     </div>
   );
 }
