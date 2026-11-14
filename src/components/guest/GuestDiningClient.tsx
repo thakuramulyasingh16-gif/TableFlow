@@ -107,12 +107,28 @@ interface CartItem {
 }
 
 interface MockCheckout {
+  provider?: 'razorpay';
   razorpayOrderId: string;
   amountPaise: number;
   currency: string;
   keyId: string;
   isMock: boolean;
 }
+
+interface UpiQrCheckout {
+  provider: 'upi_qr';
+  paymentId: number;
+  orderRef: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  upiId: string;
+  upiUri: string;
+  qrDataUrl: string;
+  restaurantName: string;
+}
+
+type CheckoutOrderResponse = MockCheckout | UpiQrCheckout;
 
 declare global {
   interface Window {
@@ -181,6 +197,8 @@ export function GuestDiningClient({
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [mockCheckout, setMockCheckout] = useState<MockCheckout | null>(null);
+  const [upiCheckout, setUpiCheckout] = useState<UpiQrCheckout | null>(null);
+  const [upiCopied, setUpiCopied] = useState(false);
   const [paymentSuccessBanner, setPaymentSuccessBanner] = useState(false);
   const [requiresPin, setRequiresPin] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -436,11 +454,16 @@ export function GuestDiningClient({
   async function startPayment(billSplitId: number | null = null) {
     try {
       const tipPaise = Math.max(0, Math.round(Number(tipRupees || 0) * 100));
-      const orderData = await apiFetch<MockCheckout>('/api/guest/payments/create-order', {
+      const orderData = await apiFetch<CheckoutOrderResponse>('/api/guest/payments/create-order', {
         method: 'POST',
         csrf: true,
         body: { billSplitId, tipPaise },
       });
+
+      if (orderData.provider === 'upi_qr') {
+        setUpiCheckout(orderData);
+        return;
+      }
 
       if (orderData.isMock || typeof window.Razorpay !== 'function') {
         setMockCheckout(orderData);
@@ -1371,6 +1394,81 @@ export function GuestDiningClient({
               </Button>
               <Button variant="leaf" onClick={completeMockPayment}>
                 Simulate UPI Pay
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Zero-Fee UPI QR Payment Modal */}
+      <Modal
+        open={Boolean(upiCheckout)}
+        onClose={() => setUpiCheckout(null)}
+        title="Zero-Fee UPI QR Payment"
+      >
+        {upiCheckout && (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <Badge tone="mint">Direct Bank UPI · Zero Convenience Fee</Badge>
+            </div>
+            <div>
+              <p className="text-[22px] font-extrabold text-leaf">
+                {formatInr(upiCheckout.amountPaise)}
+              </p>
+              <p className="text-[12px] text-muted">
+                Pay to {upiCheckout.restaurantName}
+              </p>
+            </div>
+
+            {/* Rendered QR Code */}
+            <div className="flex flex-col items-center justify-center p-3 bg-surface rounded-2xl border-2 border-sun/40">
+              <img
+                src={upiCheckout.qrDataUrl}
+                alt="UPI QR Code"
+                className="w-56 h-56 rounded-xl border border-sun/30"
+              />
+              <p className="text-[11px] text-muted mt-2">
+                Scan with GPay, PhonePe, Paytm, or BHIM
+              </p>
+            </div>
+
+            {/* UPI ID with copy button */}
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-cream border border-sun/40 text-[12px]">
+              <span className="font-mono text-ink font-bold">{upiCheckout.upiId}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(upiCheckout.upiId);
+                  setUpiCopied(true);
+                  setTimeout(() => setUpiCopied(false), 2000);
+                }}
+                className="text-[11px] font-bold text-leaf hover:underline ml-2"
+              >
+                {upiCopied ? 'Copied!' : 'Copy UPI ID'}
+              </button>
+            </div>
+
+            {/* Deep link button on mobile */}
+            <a
+              href={upiCheckout.upiUri}
+              className="inline-flex w-full items-center justify-center rounded-xl bg-leaf py-2.5 text-[14px] font-extrabold text-white shadow-soft transition hover:bg-leaf/90"
+            >
+              Open in UPI App
+            </a>
+
+            <div className="pt-2 border-t border-sun/20 space-y-2">
+              <p className="text-[11px] text-muted">
+                After paying, please notify your waiter. Waitstaff will confirm the transaction at your table.
+              </p>
+              <Button
+                variant="mint"
+                fullWidth
+                onClick={async () => {
+                  await refreshOrdersAndBill();
+                  showToast('Checking payment status...');
+                }}
+              >
+                I Have Paid / Check Status
               </Button>
             </div>
           </div>

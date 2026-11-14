@@ -14,6 +14,7 @@ import {
   Plus,
   QrCode,
   RefreshCw,
+  Settings,
   Shield,
   ShoppingCart,
   Tag,
@@ -26,6 +27,7 @@ import { AdminIngredientItem, IngredientsTab } from '@/components/admin/Ingredie
 import { AdminDishItem, MenuInventoryTab } from '@/components/admin/MenuInventoryTab';
 import { PurchasesTab } from '@/components/admin/PurchasesTab';
 import { ReportsTab } from '@/components/admin/ReportsTab';
+import { SettingsTab } from '@/components/admin/SettingsTab';
 import { Badge, Button, Card, Toast } from '@/components/ui';
 
 interface CatalogData {
@@ -71,7 +73,7 @@ export default function AdminPage() {
   const user = session?.user as { name?: string; role?: string } | undefined;
 
   const [tab, setTab] = useState<
-    'menu' | 'deals' | 'ingredients' | 'alerts' | 'purchases' | 'reports' | 'tables' | 'staff' | 'orders'
+    'menu' | 'deals' | 'ingredients' | 'alerts' | 'purchases' | 'reports' | 'tables' | 'staff' | 'orders' | 'settings'
   >('menu');
 
   const [catalog, setCatalog] = useState<CatalogData>({ categories: [], stations: [], items: [], deals: [] });
@@ -278,6 +280,7 @@ export default function AdminPage() {
             { id: 'tables', label: 'Tables & QRs', icon: QrCode },
             ...(user?.role === 'owner' ? [{ id: 'staff', label: 'Staff & Roles', icon: Users }] : []),
             { id: 'orders', label: 'Orders & Payments', icon: RefreshCw },
+            { id: 'settings', label: 'Settings & Taxes', icon: Settings },
           ].map((t) => {
             const Icon = t.icon;
             const isActive = tab === t.id;
@@ -639,6 +642,11 @@ export default function AdminPage() {
               </div>
             </Card>
           </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {tab === 'settings' && (
+          <SettingsTab userRole={user?.role} showToast={showToast} />
         )}
       </main>
     </div>

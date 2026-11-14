@@ -3,7 +3,7 @@ import { handleApiError } from '@/lib/api-error';
 import { requireCsrf } from '@/lib/csrf';
 import { requireGuestSession } from '@/lib/guest-session';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
-import { createRazorpayOrderForSession } from '@/lib/razorpay';
+import { resolvePaymentProvider } from '@/lib/payment-provider';
 import { createPaymentOrderSchema, parseJsonBody } from '@/lib/validators';
 
 export async function POST(req: NextRequest) {
@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
     await enforceRateLimit('payment', `${getClientIp(req)}:${session.id}`);
     const body = await parseJsonBody(req, createPaymentOrderSchema);
 
-    const data = await createRazorpayOrderForSession({
+    const provider = await resolvePaymentProvider();
+    const data = await provider.createOrder({
       tableSessionId: session.id,
       tableId: table.id,
       tableNumber: table.tableNumber,
@@ -25,4 +26,3 @@ export async function POST(req: NextRequest) {
     return handleApiError(err);
   }
 }
-

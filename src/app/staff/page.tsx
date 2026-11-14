@@ -30,6 +30,11 @@ interface FloorTable {
   activeOrderCount: number;
   pin?: string | null;
   activeSessionId?: number | null;
+  pendingUpiPayment?: {
+    id: number;
+    amountPaise: number;
+    razorpayOrderId: string;
+  } | null;
 }
 
 interface StaffOrder {
@@ -177,6 +182,21 @@ export default function StaffPage() {
   async function resetTableFree(tableId: number) {
     await apiFetch(`/api/staff/tables/${tableId}/status`, { method: 'PATCH', body: { status: 'free' } });
     await loadAll();
+  }
+
+  async function confirmUpi(paymentId: number) {
+    try {
+      await apiFetch('/api/staff/payments/confirm-upi', {
+        method: 'POST',
+        body: { paymentId },
+      });
+      setToast('UPI payment confirmed successfully!');
+      setTimeout(() => setToast(''), 2500);
+      await loadAll();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to confirm UPI payment');
+      setTimeout(() => setToast(''), 2500);
+    }
   }
 
   function openCollectModal(t: FloorTable) {
@@ -347,6 +367,20 @@ export default function StaffPage() {
                         </span>
                       )}
                     </div>
+                    {t.pendingUpiPayment && (
+                      <div className="p-2 rounded-lg bg-sun/20 border border-sun text-ink text-[11px] flex items-center justify-between gap-1">
+                        <div>
+                          <span className="font-extrabold">UPI QR:</span> {(t.pendingUpiPayment.amountPaise / 100).toLocaleString('en-IN', { style: 'currency', currency: 'INR' })}
+                        </div>
+                        <Button
+                          variant="leaf"
+                          onClick={() => void confirmUpi(t.pendingUpiPayment!.id)}
+                          className="text-[11px] py-1 px-2 h-auto"
+                        >
+                          Confirm UPI
+                        </Button>
+                      </div>
+                    )}
                     {t.status !== 'free' && t.activeSessionId ? (
                       <div className="flex gap-1.5 pt-1">
                         <Button

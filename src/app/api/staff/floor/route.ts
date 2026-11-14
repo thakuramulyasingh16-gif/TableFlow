@@ -27,6 +27,21 @@ export async function GET() {
       }),
     ]);
 
+    const activeSessionIds = activeSessions.map((s) => s.id);
+    const pendingUpiPayments =
+      activeSessionIds.length > 0
+        ? await prisma.payment.findMany({
+            where: {
+              tableSessionId: { in: activeSessionIds },
+              status: 'created',
+              method: 'upi_qr',
+              createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+            },
+            select: { id: true, tableSessionId: true, amountPaise: true, razorpayOrderId: true },
+          })
+        : [];
+    const upiBySession = new Map(pendingUpiPayments.map((p) => [p.tableSessionId, p]));
+
     const sessionByTable = new Map(activeSessions.map((s) => [s.tableId, s]));
 
     const floor = tables.map((t) => {
@@ -37,6 +52,7 @@ export async function GET() {
         activeSessionId: activeSess?.id || null,
         activeOrderCount: activeOrders.filter((o) => o.tableId === t.id).length,
         pendingCalls: pendingCalls.filter((c) => c.tableId === t.id),
+        pendingUpiPayment: activeSess ? upiBySession.get(activeSess.id) || null : null,
       };
     });
 

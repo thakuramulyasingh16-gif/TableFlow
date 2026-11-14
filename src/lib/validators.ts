@@ -365,3 +365,11 @@ export const updateRestaurantSettingsSchema = z
   })
   .strict();
 
+export const confirmUpiPaymentSchema = z
+  .object({
+    paymentId: z.number().int().positive(),
+    transactionReference: z.string().trim().max(100).optional().nullable(),
+  })
+  .strict();
+
+
