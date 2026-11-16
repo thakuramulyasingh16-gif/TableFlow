@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChefHat,
   Clock,
+  KeyRound,
   Layers,
   LogOut,
   PackageOpen,
@@ -19,6 +20,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
+import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
 import { Button, Card, Modal, Skeleton, Toast } from '@/components/ui';
 
 interface RecipeEntry {
@@ -76,6 +78,7 @@ export default function ChefDashboardPage() {
     name: string;
     affectedDishes: string[];
   } | null>(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const [toast, setToast] = useState('');
 
@@ -262,6 +265,12 @@ export default function ChefDashboardPage() {
 
   return (
     <div className="min-h-screen bg-cream flex flex-col font-sans pb-16">
+      <Toast message={toast} />
+      <ChangePasswordModal
+        isOpen={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        onSuccess={() => showToast('Password updated successfully.')}
+      />
       {/* Signature Gradient Header */}
       <header className="bg-signature-gradient rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -296,6 +305,15 @@ export default function ChefDashboardPage() {
               aria-label="Refresh stock data"
             >
               <RefreshCw className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="mint"
+              onClick={() => setShowChangePassword(true)}
+              className="min-h-[44px] px-3.5 text-[13px] inline-flex items-center gap-1.5"
+              aria-label="Change Password"
+            >
+              <KeyRound className="w-4 h-4" />
+              <span className="hidden sm:inline">Password</span>
             </Button>
             <Button
               variant="leaf"
