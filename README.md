@@ -46,12 +46,18 @@ npm run db:check
 
 ### Default Staff Accounts (Seeded)
 
-| Role | Email | Password |
-| :--- | :--- | :--- |
-| **Owner** | `owner@tableflow.local` | `TableFlow@2026!Owner` |
-| **Manager** | `manager@tableflow.local` | `TableFlow@2026!Manager` |
-| **Waiter** | `waiter@tableflow.local` | `TableFlow@2026!Waiter` |
-| **Chef** | `chef@tableflow.local` | `TableFlow@2026!Chef` |
+Staff can log in at `/login` using either their **Work Email** or their **Username**.
+
+| Role | Username | Seeded Email | Password Details |
+| :--- | :--- | :--- | :--- |
+| **Owner** | `owner` | `owner@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+| **Manager** | `manager` | `manager@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+| **Waiter** | `waiter` | `waiter@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+| **Chef** | `chef` | `chef@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+
+> **Security Notice**: Passwords are no longer hardcoded in seeds, docs, or scripts. Initial randomized passwords are generated at seed time with `mustChangePassword: true`. Staff can set their own passwords on first login, in the dashboard header, or via the public `/change-password` page.
+>
+> **Password Policy**: Minimum 8 characters, maximum 72 characters. Rejects ~100 common passwords and passwords matching account identifiers (username, email, or ID).
 
 ---
 
