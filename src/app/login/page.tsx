@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, KeyRound, Lock, ShieldCheck, UtensilsCrossed } from 'lucide-react';
+import { apiFetch, ensureCsrfToken } from '@/lib/api-client';
 import { Button, Card, PasswordField } from '@/components/ui';
 
 export default function LoginPage() {
@@ -25,7 +26,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     // Establish tf_csrf cookie at login/session start
-    void fetch('/api/csrf', { credentials: 'include' }).catch(() => {});
+    void ensureCsrfToken();
   }, []);
 
   async function handleCredentialsSubmit(e: React.FormEvent) {
@@ -41,6 +42,7 @@ export default function LoginPage() {
       });
 
       if (res?.code === 'mfa_required' || res?.error === 'mfa_required') {
+        void ensureCsrfToken();
         setStep('mfa');
         setTotpCode('');
         setError('');
@@ -52,6 +54,8 @@ export default function LoginPage() {
         return;
       }
 
+      // Re-issue fresh CSRF token bound to the logged-in session
+      await ensureCsrfToken(true);
       await handlePostLoginSuccess();
     } catch {
       setError('Invalid ID or password.');
@@ -78,6 +82,7 @@ export default function LoginPage() {
         return;
       }
 
+      await ensureCsrfToken(true);
       await handlePostLoginSuccess();
     } catch {
       setError('Invalid authenticator code. Please try again.');
@@ -87,15 +92,14 @@ export default function LoginPage() {
   }
 
   async function handlePostLoginSuccess() {
-    // Ensure fresh tf_csrf cookie is bound to session
-    await fetch('/api/csrf', { credentials: 'include' }).catch(() => {});
-
     const session = await getSession();
     const user = session?.user as { role?: string; mustChangePassword?: boolean } | undefined;
 
     if (user?.mustChangePassword) {
       setCurrentPassword(password);
       setMustChangePassword(true);
+      // Ensure CSRF token is fresh and ready for the forced password change form
+      await ensureCsrfToken(true);
       return;
     }
 
@@ -121,22 +125,18 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/staff/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
-      });
+      const res = await apiFetch<{ success: boolean; message?: string }>(
+        '/api/staff/auth/change-password',
+        {
+          method: 'POST',
+          body: {
+            currentPassword,
+            newPassword,
+          },
+        }
+      );
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || 'Password change failed');
-      }
-
-      setPasswordSuccess('Password successfully updated! Redirecting...');
+      setPasswordSuccess(res.message || 'Password successfully updated! Redirecting...');
       setTimeout(async () => {
         const session = await getSession();
         const role = (session?.user as { role?: string } | undefined)?.role;
