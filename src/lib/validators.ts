@@ -200,11 +200,19 @@ export const updateTableSchema = z
   })
   .strict();
 
+export const usernameSchema = z
+  .string()
+  .trim()
+  .min(3, 'Username must be at least 3 characters')
+  .max(30, 'Username must be at most 30 characters')
+  .regex(/^[a-zA-Z0-9._-]+$/, 'Username can only contain letters, numbers, dots, underscores, and hyphens');
+
 export const createStaffSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
     email: z.string().trim().email().max(190),
-    password: z.string().min(10).max(128),
+    username: usernameSchema.optional(),
+    password: z.string().min(8, 'Password must be at least 8 characters').max(72, 'Password must be at most 72 characters'),
     role: z.enum(['owner', 'manager', 'waiter', 'chef']),
   })
   .strict();
@@ -213,6 +221,18 @@ export const updateStaffSchema = z
   .object({
     role: z.enum(['owner', 'manager', 'waiter', 'chef']).optional(),
     isActive: z.boolean().optional(),
+    username: usernameSchema.nullable().optional(),
+  })
+  .strict();
+
+export const publicChangePasswordSchema = z
+  .object({
+    id: z.string().trim().min(3, 'ID must be at least 3 characters').max(190),
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z
+      .string()
+      .min(8, 'New password must be at least 8 characters')
+      .max(72, 'New password must be at most 72 characters'),
   })
   .strict();
 
