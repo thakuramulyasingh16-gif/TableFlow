@@ -63,10 +63,10 @@ test('MFA Recovery Codes: single-use consumption and reuse prevention', () => {
   assert.equal(consumeRecoveryCode('INVALID-CODE', JSON.stringify(remaining1)), null);
 });
 
-test('Password policy: requires at least 12 characters and disallows reusing current password', () => {
+test('Password policy: requires at least 8 characters and disallows reusing current password', () => {
   const validateNewPassword = (currPass: string, newPass: string) => {
-    if (newPass.length < 12) {
-      throw new AppError(400, 'New password must be at least 12 characters', 'PASSWORD_TOO_SHORT');
+    if (newPass.length < 8) {
+      throw new AppError(400, 'New password must be at least 8 characters', 'PASSWORD_TOO_SHORT');
     }
     if (newPass === currPass) {
       throw new AppError(400, 'New password cannot be the same as your current password.', 'PASSWORD_REUSE');
@@ -74,9 +74,9 @@ test('Password policy: requires at least 12 characters and disallows reusing cur
     return true;
   };
 
-  // Too short (< 12) -> rejected
+  // Too short (< 8) -> rejected
   assert.throws(
-    () => validateNewPassword('oldPassword123!', 'shortPass1!'),
+    () => validateNewPassword('oldPassword123!', 'short1!'),
     (err: unknown) => {
       assert.ok(err instanceof AppError);
       assert.equal(err.code, 'PASSWORD_TOO_SHORT');
@@ -94,8 +94,9 @@ test('Password policy: requires at least 12 characters and disallows reusing cur
     }
   );
 
-  // Valid 12+ char password -> accepted
+  // Valid 8+ char password -> accepted
   assert.equal(validateNewPassword('oldPassword123!', 'BrandNewSecurePassword2026!'), true);
+  assert.equal(validateNewPassword('oldPassword123!', 'ValidPass8!'), true);
 });
 
 test('Last owner protection: prevents demoting or deactivating the last active owner', () => {

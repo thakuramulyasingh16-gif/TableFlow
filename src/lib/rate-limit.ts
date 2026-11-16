@@ -9,6 +9,8 @@ type LimiterBucket =
   | 'login'
   | 'login_ip'
   | 'login_email'
+  | 'change_password_ip'
+  | 'change_password_id'
   | 'order'
   | 'waiter_call'
   | 'payment'
@@ -22,6 +24,8 @@ const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: 
   login: { max: 10, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login_ip: { max: 20, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login_email: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  change_password_ip: { max: 15, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  change_password_id: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   order: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   waiter_call: { max: 6, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   payment: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
