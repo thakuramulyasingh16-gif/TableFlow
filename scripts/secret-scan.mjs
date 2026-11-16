@@ -15,6 +15,10 @@ const SECRET_PATTERNS = [
     regex:
       /(?:AUTH_SECRET|GUEST_COOKIE_SECRET|MFA_ENCRYPTION_KEY|REALTIME_CHANNEL_SECRET|RAZORPAY_KEY_SECRET|RAZORPAY_WEBHOOK_SECRET|UPSTASH_REDIS_REST_TOKEN|SUPABASE_SERVICE_ROLE_KEY|RESEND_API_KEY)\s*[:=]\s*['"]?(?!replace_with_)[A-Za-z0-9+/=_-]{24,}['"]?/,
   },
+  {
+    name: 'Exposed Default Demo Password',
+    regex: /\bTableFlow@2026!(?:Owner|Manager|Waiter|Chef)\b/i,
+  },
 ];
 
 function getStagedFiles() {
