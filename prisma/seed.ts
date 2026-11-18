@@ -10,6 +10,12 @@ async function main() {
   // Safety guard: refuse to run seed in production without explicit opt-in
   assertSeedAllowed(process.env);
 
+  console.log('\n======================================================================');
+  console.log('  TABLEFLOW DEVELOPMENT / DEMO SEEDER                                 ');
+  console.log('  Warning: This seed populates demo menu items, staff, orders & tables.');
+  console.log('  DO NOT USE IN PRODUCTION. For production, run `npm run create-owner`.');
+  console.log('======================================================================\n');
+
   // 1. Roles
   const roleDefs: { name: RoleName; description: string }[] = [
     { name: 'owner', description: 'Restaurant owner and full administrator' },

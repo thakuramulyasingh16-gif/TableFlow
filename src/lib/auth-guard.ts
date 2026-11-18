@@ -81,7 +81,6 @@ export async function requireStaffAuth(
           role?: string;
           tokenVersion?: number;
           mustChangePassword?: boolean;
-          mfaSetupRequired?: boolean;
         };
       }
     | null

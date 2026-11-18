@@ -233,6 +233,7 @@ export const publicChangePasswordSchema = z
       .string()
       .min(8, 'New password must be at least 8 characters')
       .max(72, 'New password must be at most 72 characters'),
+    totpCode: z.string().trim().max(32).optional(),
   })
   .strict();
 
