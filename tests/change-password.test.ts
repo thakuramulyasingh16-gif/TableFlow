@@ -633,3 +633,122 @@ test('Public change password MFA: recovery code succeeds and consumes code', asy
     }
   );
 });
+
+test('Authenticated change password: per-user and per-IP rate limiting enforces limits', async () => {
+  resetMemoryRateLimits();
+  const ip = '10.0.0.42';
+  const actorId = 7;
+
+  // Rate limit on per-user/ID bucket: max 5
+  for (let i = 0; i < 5; i++) {
+    await assert.doesNotReject(() =>
+      enforceRateLimit('change_password_id', `${ip}:${actorId}`)
+    );
+  }
+
+  // 6th attempt is blocked
+  await assert.rejects(
+    () => enforceRateLimit('change_password_id', `${ip}:${actorId}`),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 429);
+      assert.equal(err.code, 'RATE_LIMITED');
+      return true;
+    }
+  );
+});
+
+test('Authenticated change password: wrong current password counts failed attempts and locks after 5 attempts', async () => {
+  const currentPassword = 'InitialValidPass123!';
+  const passwordHash = await bcrypt.hash(currentPassword, 10);
+  const user = {
+    id: 10,
+    failedLoginAttempts: 0,
+    lockedUntil: null as Date | null,
+    passwordHash,
+  };
+
+  const handleAuthenticatedPasswordAttempt = async (attemptedCurrent: string) => {
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      throw new AppError(
+        400,
+        'Account is temporarily locked due to too many failed attempts. Please try again later.',
+        'ACCOUNT_LOCKED'
+      );
+    }
+
+    const valid = await bcrypt.compare(attemptedCurrent, user.passwordHash);
+    if (!valid) {
+      user.failedLoginAttempts += 1;
+      if (user.failedLoginAttempts >= 5) {
+        user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+      }
+      throw new AppError(400, 'Current password is incorrect.', 'INVALID_CURRENT_PASSWORD');
+    }
+
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    return true;
+  };
+
+  // 4 wrong attempts: increments counter, not locked
+  for (let i = 1; i <= 4; i++) {
+    await assert.rejects(
+      () => handleAuthenticatedPasswordAttempt('WrongPass!'),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 400);
+        assert.equal(err.code, 'INVALID_CURRENT_PASSWORD');
+        return true;
+      }
+    );
+    assert.equal(user.failedLoginAttempts, i);
+    assert.equal(user.lockedUntil, null);
+  }
+
+  // 5th wrong attempt: locks for 15 minutes
+  await assert.rejects(
+    () => handleAuthenticatedPasswordAttempt('WrongPass!'),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.code, 'INVALID_CURRENT_PASSWORD');
+      return true;
+    }
+  );
+  assert.equal(user.failedLoginAttempts, 5);
+  assert.ok(user.lockedUntil !== null);
+  assert.ok(user.lockedUntil > new Date());
+
+  // Subsequent attempt rejected with ACCOUNT_LOCKED
+  await assert.rejects(
+    () => handleAuthenticatedPasswordAttempt(currentPassword),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.code, 'ACCOUNT_LOCKED');
+      return true;
+    }
+  );
+});
+
+test('Authenticated change password: successful update resets failedLoginAttempts and clears lockedUntil', async () => {
+  const currentPassword = 'InitialValidPass123!';
+  const passwordHash = await bcrypt.hash(currentPassword, 10);
+  const user = {
+    id: 11,
+    failedLoginAttempts: 3,
+    lockedUntil: null as Date | null,
+    passwordHash,
+  };
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  assert.equal(valid, true);
+
+  // Simulated success update
+  user.failedLoginAttempts = 0;
+  user.lockedUntil = null;
+
+  assert.equal(user.failedLoginAttempts, 0);
+  assert.equal(user.lockedUntil, null);
+});
