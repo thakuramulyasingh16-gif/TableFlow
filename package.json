@@ -20,6 +20,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "db:reset-demo-passwords": "tsx scripts/reset-demo-passwords.ts",
     "secret-scan": "node scripts/secret-scan.mjs",
     "secret-scan:all": "node scripts/secret-scan.mjs --all",
     "audit:high": "npm audit --omit=dev --audit-level=high"

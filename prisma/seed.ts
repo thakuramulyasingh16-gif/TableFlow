@@ -1,25 +1,14 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient, RoleName, SpiceLevel, StationCode } from '@prisma/client';
+import { assertSeedAllowed, generateStrongPassword } from './seed-guard';
 
 const prisma = new PrismaClient();
 const BCRYPT_COST = 12;
 
-function generateStrongPassword(): string {
-  // Generates 18 random bytes in base64url (~24 chars) with guaranteed character variety
-  // Total length: 28 characters (>= 16 chars required)
-  const entropy = crypto.randomBytes(18).toString('base64url');
-  return `Tf#${entropy}9!`;
-}
-
 async function main() {
   // Safety guard: refuse to run seed in production without explicit opt-in
-  if (process.env.NODE_ENV === 'production' && process.env.SEED_ALLOW_PRODUCTION !== 'true') {
-    console.error('\n❌ ERROR: Refusing to run prisma/seed.ts in production environment.');
-    console.error('   Running the database seed in production risks overwriting existing schema data and injecting demo accounts.');
-    console.error('   If you genuinely intend to seed this production database, you must explicitly set SEED_ALLOW_PRODUCTION=true.\n');
-    process.exit(1);
-  }
+  assertSeedAllowed(process.env);
 
   // 1. Roles
   const roleDefs: { name: RoleName; description: string }[] = [
@@ -48,6 +37,7 @@ async function main() {
   ];
 
   const createdCredentials: { role: string; email: string; username: string; password: string }[] = [];
+  const skippedUsers: { role: string; email: string; username: string }[] = [];
   for (const s of staffDefs) {
     const existing = await prisma.user.findUnique({ where: { email: s.email } });
     if (!existing) {
@@ -65,12 +55,15 @@ async function main() {
         },
       });
       createdCredentials.push({ role: s.role, email: s.email, username: s.username, password: plainPassword });
-    } else if (!existing.username) {
+    } else {
       // Ensure existing users get their designated username
-      await prisma.user.update({
-        where: { id: existing.id },
-        data: { username: s.username },
-      });
+      if (!existing.username) {
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: { username: s.username },
+        });
+      }
+      skippedUsers.push({ role: s.role, email: s.email, username: s.username });
     }
   }
 
@@ -592,8 +585,18 @@ async function main() {
       console.log(`    (mustChangePassword=true is enforced upon first login)`);
     }
     console.log('======================================================================\n');
-  } else {
-    console.log('Staff accounts already exist in database (passwords preserved).');
+  }
+
+  if (skippedUsers.length > 0) {
+    console.log('\n======================================================================');
+    console.log('  ⚠️  NOTICE: Existing staff accounts detected — passwords NOT changed:');
+    console.log('======================================================================');
+    for (const u of skippedUsers) {
+      console.log(`  - [${u.role.toUpperCase()}] ID: ${u.username} (${u.email}) -> password skipped (preserved).`);
+    }
+    console.log('\n  To regenerate random passwords for existing demo accounts, run:');
+    console.log('    npm run db:reset-demo-passwords');
+    console.log('======================================================================\n');
   }
   if (firstTable) {
     console.log(`\nSample Table T1 URL: /t/${firstTable.qrToken}`);
