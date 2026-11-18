@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { assertSeedAllowed, isSeedAllowed, generateStrongPassword } from '../prisma/seed-guard';
+import { createOwnerCore, parseCliArgs } from '../scripts/create-owner';
 
 test('assertSeedAllowed refuses in production environment without explicit opt-in', () => {
   // Refuses in production when SEED_ALLOW_PRODUCTION is unset or not 'true'
@@ -85,4 +86,100 @@ test('No tracked file contains the exposed legacy demo password', () => {
     '',
     `Found occurrences of legacy demo password in tracked files:\n${matches}`
   );
+});
+
+test('create-owner CLI parser correctly parses flags', () => {
+  const parsed = parseCliArgs([
+    '--email',
+    'admin@restaurant.com',
+    '--username',
+    'admin',
+    '--name',
+    'Head Chef & Owner',
+    '--password',
+    'SuperSecretPass123!',
+    '--allow-multiple-owners',
+  ]);
+
+  assert.equal(parsed.email, 'admin@restaurant.com');
+  assert.equal(parsed.username, 'admin');
+  assert.equal(parsed.name, 'Head Chef & Owner');
+  assert.equal(parsed.password, 'SuperSecretPass123!');
+  assert.equal(parsed.allowMultipleOwners, true);
+});
+
+test('createOwnerCore creates roles, settings, and owner account with mustChangePassword=true', async () => {
+  const rolesCreated: unknown[] = [];
+  let settingsCreated = false;
+
+  const mockClient = {
+    role: {
+      upsert: async ({ create }: { create: { name: string } }) => {
+        rolesCreated.push(create);
+        return { id: rolesCreated.length, name: create.name };
+      },
+    },
+    restaurantSettings: {
+      findFirst: async () => null,
+      create: async () => {
+        settingsCreated = true;
+        return { id: 1 };
+      },
+    },
+    user: {
+      findFirst: async () => null,
+      create: async ({ data }: { data: { email: string; username: string; mustChangePassword: boolean; isActive: boolean } }) => {
+        return { id: 1, ...data };
+      },
+    },
+  };
+
+  const res = await createOwnerCore(
+    { email: 'newowner@test.local', username: 'owner1' },
+    mockClient as never
+  );
+
+  assert.equal(rolesCreated.length, 4);
+  assert.equal(settingsCreated, true);
+  assert.equal(res.user.email, 'newowner@test.local');
+  assert.equal(res.user.username, 'owner1');
+  assert.equal(res.user.mustChangePassword, true);
+  assert.equal(res.user.isActive, true);
+  assert.ok(res.password.length >= 24);
+});
+
+test('createOwnerCore refuses to create second owner unless allowMultipleOwners is true', async () => {
+  const existingOwner = {
+    id: 1,
+    name: 'Existing Owner',
+    email: 'existing@test.local',
+    username: 'existing',
+    isActive: true,
+  };
+
+  const mockClient = {
+    role: {
+      upsert: async ({ create }: { create: { name: string } }) => ({ id: 1, name: create.name }),
+    },
+    restaurantSettings: {
+      findFirst: async () => ({ id: 1 }),
+    },
+    user: {
+      findFirst: async () => existingOwner,
+      create: async ({ data }: { data: { email: string } }) => ({ id: 2, ...data }),
+    },
+  };
+
+  // 1. Without allowMultipleOwners -> throws error
+  await assert.rejects(
+    () => createOwnerCore({ email: 'second@test.local' }, mockClient as never),
+    /An active owner account already exists/
+  );
+
+  // 2. With allowMultipleOwners -> succeeds
+  const res = await createOwnerCore(
+    { email: 'second@test.local', allowMultipleOwners: true },
+    mockClient as never
+  );
+  assert.equal(res.user.email, 'second@test.local');
 });

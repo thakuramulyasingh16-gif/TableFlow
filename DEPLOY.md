@@ -22,9 +22,13 @@ This guide walks through deploying TableFlow (Next.js App Router + Postgres + Au
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
 
-### D. Razorpay (Test Mode Payments & Webhooks)
-1. Create test API keys in [Razorpay Dashboard](https://dashboard.razorpay.com) -> **Settings -> API Keys**.
-2. Create a Webhook pointing to `https://<your-vercel-domain>/api/webhooks/razorpay` subscribing to `payment.captured`, and set a strong `RAZORPAY_WEBHOOK_SECRET`.
+### D. Razorpay (Payments & Webhooks)
+1. Create test or live API keys in [Razorpay Dashboard](https://dashboard.razorpay.com) -> **Settings -> API Keys**.
+2. Create a Webhook pointing to `https://<your-vercel-domain>/api/webhooks/razorpay` subscribing to the following three events:
+   - `payment.captured`
+   - `payment.failed`
+   - `refund.processed`
+3. Set a strong `RAZORPAY_WEBHOOK_SECRET` and add it to your environment variables.
 
 ### E. Resend (Email GST Receipts)
 1. Create an API key on [Resend](https://resend.com) and verify your sending domain (or use `onboarding@resend.dev` for testing).
@@ -38,14 +42,15 @@ In Vercel Project Settings -> **Environment Variables**, add:
 | Variable | Scope | Example / Notes |
 | :--- | :--- | :--- |
 | `NODE_ENV` | Production | `production` |
+| `HUSKY` | All | `0` (disables git hooks during automated Vercel build) |
 | `NEXT_PUBLIC_APP_URL` | All | `https://tableflow.vercel.app` |
 | `CORS_ORIGIN` | Production | `https://tableflow.vercel.app` (never `*`) |
 | `DATABASE_URL` | All | Pooled Postgres URL |
 | `DIRECT_URL` | All | Direct Postgres URL for migrations |
-| `AUTH_SECRET` | All | 96-char random hex (`crypto.randomBytes(48).toString('hex')`) |
-| `GUEST_COOKIE_SECRET` | All | Distinct 96-char random hex |
-| `MFA_ENCRYPTION_KEY` | Production | 32-byte base64-encoded key (`crypto.randomBytes(32).toString('base64')`) |
-| `REALTIME_CHANNEL_SECRET` | Production | Min 32 chars random hex for realtime HMAC derivation |
+| `AUTH_SECRET` | All | Min 48-char random base64 / hex |
+| `GUEST_COOKIE_SECRET` | All | Distinct min 48-char random base64 / hex |
+| `MFA_ENCRYPTION_KEY` | Production | Exactly 32-byte base64-encoded key |
+| `REALTIME_CHANNEL_SECRET` | Production | Min 32 chars random string for realtime HMAC derivation |
 | `GUEST_SESSION_TTL_MINUTES` | All | `120` |
 | `CGST_BPS` | All | `250` (2.5%) |
 | `SGST_BPS` | All | `250` (2.5%) |
@@ -54,25 +59,58 @@ In Vercel Project Settings -> **Environment Variables**, add:
 | `NEXT_PUBLIC_SUPABASE_URL` | All | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | All | Supabase anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Production | Supabase service role key (server-only) |
-| `RAZORPAY_KEY_ID` | All | `rzp_test_...` |
+| `RAZORPAY_KEY_ID` | All | `rzp_live_...` or `rzp_test_...` |
 | `RAZORPAY_KEY_SECRET` | Production | Razorpay secret |
 | `RAZORPAY_WEBHOOK_SECRET` | Production | Razorpay webhook secret |
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | All | Same as `RAZORPAY_KEY_ID` |
 | `RESEND_API_KEY` | Production | `re_...` |
 | `RESEND_FROM` | All | `TableFlow Receipts <receipts@yourdomain.com>` |
 
----
+### Generating Cryptographic Secrets (Windows cmd / PowerShell)
 
-## 3. Run Database Migrations & Seed
+Run these commands in Windows cmd or terminal to generate high-entropy secrets for your deployment:
 
-From your local terminal pointing `.env` (or exported env vars) to your production/staging `DATABASE_URL` and `DIRECT_URL`:
+```cmd
+rem 1. AUTH_SECRET (Session encryption, min 48 chars)
+node -e "console.log(require('crypto').randomBytes(36).toString('base64'))"
 
-```bash
-npx prisma migrate deploy
-npx tsx prisma/seed.ts
+rem 2. GUEST_COOKIE_SECRET (Guest session HMAC cookie signing, min 48 chars)
+node -e "console.log(require('crypto').randomBytes(36).toString('base64'))"
+
+rem 3. MFA_ENCRYPTION_KEY (AES-256-GCM TOTP secret encryption at rest, EXACTLY 32 bytes base64)
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+rem 4. REALTIME_CHANNEL_SECRET (Private realtime channel name derivation, min 32 chars)
+node -e "console.log(require('crypto').randomBytes(36).toString('base64'))"
+
+rem 5. RAZORPAY_WEBHOOK_SECRET (Webhook signature verification)
+node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
 ```
 
-Save the randomly generated staff credentials printed once by `seed.ts`, and rotate them via the Owner account if desired.
+---
+
+## 3. Run Database Migrations & Production Owner Setup
+
+> [!WARNING]
+> **CRITICAL: DO NOT RUN DEMO SEED IN PRODUCTION!**
+> Never run `npm run db:seed` or `npx tsx prisma/seed.ts` in production. The seed script inserts sample demo menu items, demo orders, test tables, and demo accounts intended solely for development. Running it in production will contaminate your live database with sample test data.
+
+To initialize your production database safely:
+
+```bash
+# 1. Apply Prisma migrations to the production database
+npx prisma migrate deploy
+
+# 2. Bootstrap production roles, restaurant settings, and owner account ONLY
+npm run create-owner
+```
+
+Optionally pass non-interactive flags when running `create-owner`:
+```bash
+npm run create-owner -- --name "Restaurant Owner" --email "owner@yourdomain.com" --username "owner"
+```
+
+Save the temporary password printed once by `create-owner`. On your first login at `/login`, you will be prompted to set a permanent, secure password.
 
 ---
 
@@ -112,9 +150,23 @@ FOR INSERT TO anon, authenticated
 WITH CHECK (false);
 ```
 
-### Verification Checklist
-- [ ] Clients cannot broadcast arbitrary messages via Supabase client.
-- [ ] Channel names cannot be guessed by sequential table or session IDs.
-- [ ] Broadcast payloads are sanitized server-side (no staff PII or email leakage).
+---
+
+## 6. Step-by-Step Go-Live Checklist
+
+Complete this checklist prior to launching in production:
+
+- [ ] **1. Managed Database**: Provision managed PostgreSQL (e.g. Neon or Supabase) with both `DATABASE_URL` (pooled) and `DIRECT_URL` (direct).
+- [ ] **2. Upstash Redis**: Provision Upstash Redis instance and configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+- [ ] **3. Supabase Realtime**: Provision Supabase project and apply RLS SQL policies from Section 5.
+- [ ] **4. Cryptographic Secrets**: Generate secrets using `node -e` commands from Section 2 and configure in Vercel environment variables.
+- [ ] **5. Environment Variables**: Add `HUSKY=0`, `NODE_ENV=production`, `NEXT_PUBLIC_APP_URL`, and `CORS_ORIGIN` to Vercel.
+- [ ] **6. Database Migrations**: Run `npx prisma migrate deploy` targeting production `DATABASE_URL` / `DIRECT_URL`.
+- [ ] **7. Bootstrap Owner**: Run `npm run create-owner` to create system roles and initial owner account. **Verify that `npm run db:seed` was NOT run.**
+- [ ] **8. Razorpay Webhooks**: Configure webhook endpoint (`/api/webhooks/razorpay`) subscribed to `payment.captured`, `payment.failed`, and `refund.processed` with matching secret.
+- [ ] **9. Resend Domain**: Verify sending domain in Resend and configure `RESEND_API_KEY` and `RESEND_FROM`.
+- [ ] **10. Initial Login & Setup**: Log into `/login` with owner credentials, change initial temporary password, and configure restaurant legal details, GSTIN, FSSAI, and tables under `/admin`.
+- [ ] **11. Health Check**: Verify `https://<your-domain>/api/health` returns status `ok`.
+
 
 

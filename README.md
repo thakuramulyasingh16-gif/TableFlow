@@ -78,6 +78,10 @@ Staff can log in at `/login` using either their **Work Email** or their **Userna
 >
 > **Password Policy**: Minimum 8 characters, maximum 72 characters. Rejects common passwords and passwords matching account identifiers (username, email, or ID).
 
+### Production Setup vs. Development Seeding
+- **Development Demo Seeding (`npm run db:seed`)**: Populates sample menu items, demo orders, kitchen stations, and demo staff accounts for local testing. Refuses to execute in production (`NODE_ENV=production`) unless `SEED_ALLOW_PRODUCTION=true` is explicitly set.
+- **Production Owner Setup (`npm run create-owner`)**: Provisions ONLY the system roles, default Indian GST restaurant settings row, and a single administrator owner account with a prompted or generated strong password (`mustChangePassword: true`). No demo menu items, no demo orders, and no demo staff. **In production environments, always use `npm run create-owner` and NEVER run `npm run db:seed`.**
+
 ---
 
 ## Features (Phase 1)
