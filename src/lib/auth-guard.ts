@@ -108,26 +108,13 @@ export async function requireStaffAuth(
     throw new AppError(401, 'Session has been revoked', 'TOKEN_REVOKED');
   }
 
-  const isPrivileged = user.role.name === 'owner' || user.role.name === 'manager';
-  const mfaEnrolled = user.mfaEnabled && Boolean(user.mfaSecret);
-  const mfaSetupRequired = sessionUser?.mfaSetupRequired || (isPrivileged && !mfaEnrolled);
-
-  // 1. Mandatory password change check
+  // Mandatory password change check
   const mustChangePassword = sessionUser?.mustChangePassword || user.mustChangePassword;
   if (mustChangePassword && !options?.allowChangePassword) {
     throw new AppError(
       403,
       'Password change required before accessing staff operations',
       'PASSWORD_CHANGE_REQUIRED'
-    );
-  }
-
-  // 2. Mandatory MFA enrollment for owner and manager
-  if (mfaSetupRequired && !options?.allowMfaSetup) {
-    throw new AppError(
-      403,
-      'MFA enrollment required for owner and manager accounts',
-      'MFA_SETUP_REQUIRED'
     );
   }
 

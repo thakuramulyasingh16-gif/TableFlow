@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ChefHat, LogOut, Printer, RefreshCw, Volume2, VolumeX } from 'lucide-react';
+import { AlertTriangle, ChefHat, KeyRound, LogOut, Printer, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { elapsedMinutes } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
 import { playChime } from '@/lib/sound';
+import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
 import { PrintableKotModal, KotTicket } from '@/components/kitchen/PrintableKotModal';
 import { Badge, Button, Card, Chip, Skeleton, TimerChip, Toast } from '@/components/ui';
 
@@ -48,6 +49,7 @@ export default function KitchenPage() {
   );
   const [activeKot, setActiveKot] = useState<KotTicket | null>(null);
   const [toast, setToast] = useState('');
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [, setTick] = useState(0);
   const prevCountRef = useRef<number>(0);
 
@@ -167,6 +169,11 @@ export default function KitchenPage() {
   return (
     <div className="min-h-screen bg-cream">
       <Toast message={toast} />
+      <ChangePasswordModal
+        isOpen={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        onSuccess={() => setToast('Password updated successfully.')}
+      />
 
       <header className="bg-kitchen-gradient text-surface rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
         <div className="max-w-[1280px] mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -215,6 +222,14 @@ export default function KitchenPage() {
               className="min-w-[44px] min-h-[44px] rounded-full bg-surface/15 text-surface inline-flex items-center justify-center hover:bg-surface/25 cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Change Password"
+              onClick={() => setShowChangePassword(true)}
+              className="min-h-[44px] px-3.5 rounded-full bg-surface/15 text-surface text-[13px] font-bold inline-flex items-center gap-1.5 hover:bg-surface/25 cursor-pointer"
+            >
+              <KeyRound className="w-4 h-4" /> Password
             </button>
             <Button variant="tomato" onClick={() => signOut({ callbackUrl: '/login' })}>
               <LogOut className="w-4 h-4" aria-hidden="true" /> Sign Out

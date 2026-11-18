@@ -6,7 +6,6 @@ export function getAuthorizedDashboard(role?: string): string {
 }
 
 export interface DashboardAccessOptions {
-  mfaSetupRequired?: boolean;
   mustChangePassword?: boolean;
 }
 
@@ -24,20 +23,12 @@ export function checkDashboardAccess(
 
   const normalized = pathname.toLowerCase();
 
-  // 1. Mandatory password change check (server-side enforcement)
+  // Mandatory password change check (server-side enforcement)
   if (options?.mustChangePassword) {
     if (normalized === '/change-password' || normalized.startsWith('/change-password/')) {
       return { allowed: true, redirectUrl: '' };
     }
     return { allowed: false, redirectUrl: '/change-password' };
-  }
-
-  // 2. Mandatory MFA setup check for restricted sessions (owner / manager)
-  if (options?.mfaSetupRequired) {
-    if (normalized === '/mfa-setup' || normalized.startsWith('/mfa-setup/')) {
-      return { allowed: true, redirectUrl: '' };
-    }
-    return { allowed: false, redirectUrl: '/mfa-setup' };
   }
 
   // /admin/audit-logs viewer (owner only)

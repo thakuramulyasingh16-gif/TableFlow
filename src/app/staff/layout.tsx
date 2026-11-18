@@ -15,13 +15,11 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   const user = session?.user as
     | {
         role?: string;
-        mfaSetupRequired?: boolean;
         mustChangePassword?: boolean;
       }
     | undefined;
 
   const access = checkDashboardAccess('/staff', user?.role, {
-    mfaSetupRequired: user?.mfaSetupRequired,
     mustChangePassword: user?.mustChangePassword,
   });
 

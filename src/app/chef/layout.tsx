@@ -15,13 +15,11 @@ export default async function ChefLayout({ children }: { children: React.ReactNo
   const user = session?.user as
     | {
         role?: string;
-        mfaSetupRequired?: boolean;
         mustChangePassword?: boolean;
       }
     | undefined;
 
   const access = checkDashboardAccess('/chef', user?.role, {
-    mfaSetupRequired: user?.mfaSetupRequired,
     mustChangePassword: user?.mustChangePassword,
   });
 

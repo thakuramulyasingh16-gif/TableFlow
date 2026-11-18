@@ -39,15 +39,15 @@ async function main() {
     roleMap[r.name] = role.id;
   }
 
-  // 2. Demo Staff Accounts (strong random passwords printed ONCE)
-  const staffDefs: { name: string; email: string; role: RoleName }[] = [
-    { name: 'Aarav Sharma (Owner)', email: 'owner@tableflow.local', role: 'owner' },
-    { name: 'Meera Nair (Manager)', email: 'manager@tableflow.local', role: 'manager' },
-    { name: 'Rohan Verma (Waiter)', email: 'waiter@tableflow.local', role: 'waiter' },
-    { name: 'Kabir Patel (Chef)', email: 'chef@tableflow.local', role: 'chef' },
+  // 2. Demo Staff Accounts (strong random passwords printed ONCE, usernames set)
+  const staffDefs: { name: string; email: string; username: string; role: RoleName }[] = [
+    { name: 'Aarav Sharma (Owner)', email: 'owner@tableflow.local', username: 'owner', role: 'owner' },
+    { name: 'Meera Nair (Manager)', email: 'manager@tableflow.local', username: 'manager', role: 'manager' },
+    { name: 'Rohan Verma (Waiter)', email: 'waiter@tableflow.local', username: 'waiter', role: 'waiter' },
+    { name: 'Kabir Patel (Chef)', email: 'chef@tableflow.local', username: 'chef', role: 'chef' },
   ];
 
-  const createdCredentials: { role: string; email: string; password: string }[] = [];
+  const createdCredentials: { role: string; email: string; username: string; password: string }[] = [];
   for (const s of staffDefs) {
     const existing = await prisma.user.findUnique({ where: { email: s.email } });
     if (!existing) {
@@ -57,13 +57,20 @@ async function main() {
         data: {
           name: s.name,
           email: s.email,
+          username: s.username,
           passwordHash,
           roleId: roleMap[s.role],
           isActive: true,
           mustChangePassword: true,
         },
       });
-      createdCredentials.push({ role: s.role, email: s.email, password: plainPassword });
+      createdCredentials.push({ role: s.role, email: s.email, username: s.username, password: plainPassword });
+    } else if (!existing.username) {
+      // Ensure existing users get their designated username
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { username: s.username },
+      });
     }
   }
 
@@ -580,7 +587,7 @@ async function main() {
     console.log('  GENERATED STAFF CREDENTIALS (printed ONCE at seed time — save now): ');
     console.log('======================================================================');
     for (const c of createdCredentials) {
-      console.log(`  - [${c.role.toUpperCase()}] ${c.email}`);
+      console.log(`  - [${c.role.toUpperCase()}] ID: ${c.username} (${c.email})`);
       console.log(`    Temporary Password: ${c.password}`);
       console.log(`    (mustChangePassword=true is enforced upon first login)`);
     }

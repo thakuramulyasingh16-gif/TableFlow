@@ -65,17 +65,18 @@ npm run db:check
 
 ### Staff Accounts (Seeded)
 
-Staff account credentials are generated cryptographically at seed time (`npx tsx prisma/seed.ts` or `npm run setup`) with strong random passwords (>= 16 characters) and printed **once** to the terminal.
-Each account has `mustChangePassword = true` enabled, requiring a new password to be configured on first login.
+Staff can log in at `/login` using either their **Work Email** or their **Username**.
 
-| Role | Email | Role Description |
-| :--- | :--- | :--- |
-| **Owner** | `owner@tableflow.local` | Full system administrator, staff management & restaurant settings (requires MFA) |
-| **Manager** | `manager@tableflow.local` | Floor supervisor, menu & table management, purchases (requires MFA) |
-| **Waiter** | `waiter@tableflow.local` | Table service, order confirmation, external payment recording |
-| **Chef** | `chef@tableflow.local` | Kitchen Display System (KDS) & live recipe stock management |
+| Role | Username | Seeded Email | Password Details |
+| :--- | :--- | :--- | :--- |
+| **Owner** | `owner` | `owner@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+| **Manager** | `manager` | `manager@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+| **Waiter** | `waiter` | `waiter@tableflow.local` | Generated randomly at seed time (printed ONCE) |
+| **Chef** | `chef` | `chef@tableflow.local` | Generated randomly at seed time (printed ONCE) |
 
-> **Security Note**: Never commit staff credentials to version control. To generate credentials for a new installation, run `npm run setup`. Passwords can also be updated at any time from the Owner dashboard under `/admin`.
+> **Security Notice**: Passwords are no longer hardcoded in seeds, docs, or scripts. Initial randomized passwords are generated at seed time with `mustChangePassword: true`. Staff can set their own passwords on first login, in the dashboard header, or via the public `/change-password` page.
+>
+> **Password Policy**: Minimum 8 characters, maximum 72 characters. Rejects common passwords and passwords matching account identifiers (username, email, or ID).
 
 ---
 

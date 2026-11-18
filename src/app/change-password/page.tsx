@@ -1,29 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { signOut, useSession } from 'next-auth/react';
-import { KeyRound, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
-import { Button, Card } from '@/components/ui';
+import { ArrowLeft, CheckCircle2, KeyRound } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
+import { Button, Card, PasswordField } from '@/components/ui';
 
 export default function ChangePasswordPage() {
   const router = useRouter();
-  const { data: session, update } = useSession();
+  const [id, setId] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    if (newPassword.length < 12) {
-      setError('New password must be at least 12 characters.');
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters.');
       return;
     }
 
@@ -32,138 +32,135 @@ export default function ChangePasswordPage() {
       return;
     }
 
-    if (currentPassword === newPassword) {
-      setError('New password cannot be the same as your current password.');
-      return;
-    }
-
-    setLoading(true);
+    setSubmitting(true);
     try {
-      await apiFetch<{ success: boolean; message: string }>('/api/staff/auth/change-password', {
+      const res = await apiFetch<{ success: boolean; message: string }>('/api/auth/change-password', {
         method: 'POST',
-        body: { currentPassword, newPassword },
+        body: {
+          id: id.trim(),
+          currentPassword,
+          newPassword,
+        },
       });
 
-      setSuccess('Password updated successfully! Redirecting...');
-      await update({ mustChangePassword: false });
-
+      setSuccess(res.message || 'Password changed successfully!');
       setTimeout(() => {
-        const user = session?.user as { role?: string; mfaSetupRequired?: boolean } | undefined;
-        if (user?.mfaSetupRequired) {
-          router.push('/mfa-setup');
-        } else {
-          const role = user?.role;
-          if (role === 'owner' || role === 'manager') {
-            router.push('/admin');
-          } else if (role === 'chef') {
-            router.push('/kitchen');
-          } else {
-            router.push('/staff');
-          }
-        }
-      }, 1000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to change password.');
+        router.push('/login');
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to change password. Please try again.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-cream flex items-center justify-center p-4">
-      <Card className="w-full max-w-md overflow-hidden shadow-card">
-        <div className="bg-signature-gradient p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-leaf/10 flex items-center justify-center text-leaf font-bold">
-                <KeyRound className="w-6 h-6 text-leaf" />
-              </div>
-              <div>
-                <h1 className="text-xl font-extrabold text-ink leading-tight">Change Password</h1>
-                <p className="text-xs font-semibold text-muted">Account policy requires a password update</p>
-              </div>
-            </div>
-            <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
-              className="flex items-center gap-1.5 text-xs font-bold text-muted hover:text-tomato transition-colors px-2 py-1 rounded-lg border border-leaf/15 hover:border-tomato/30"
-              title="Sign Out"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Log out</span>
-            </button>
+    <div className="min-h-screen bg-cream flex flex-col justify-center items-center px-4 py-12">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center space-y-2">
+          <div className="inline-flex p-3 rounded-2xl bg-mint-bg text-leaf mb-2 shadow-sm">
+            <KeyRound className="w-8 h-8" aria-hidden="true" />
           </div>
+          <h1 className="text-2xl font-extrabold text-ink tracking-tight">Change Password</h1>
+          <p className="text-[14px] font-bold text-muted">
+            Enter your ID (email or username) and current password to set a new password.
+          </p>
         </div>
 
-        <div className="p-6 space-y-4">
+        <Card className="p-6 sm:p-8 bg-surface shadow-card border border-leaf/10 rounded-2xl">
           {error && (
-            <div className="p-3 rounded-xl bg-tomato/10 border border-tomato/30 text-tomato text-xs font-bold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
+            <div
+              role="alert"
+              className="mb-5 p-3.5 rounded-xl bg-tomato/10 border border-tomato/30 text-tomato text-[13px] font-bold"
+            >
+              {error}
             </div>
           )}
 
           {success && (
-            <div className="p-3 rounded-xl bg-mint-bg border border-leaf/30 text-leaf text-xs font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{success}</span>
+            <div
+              role="status"
+              className="mb-5 p-3.5 rounded-xl bg-leaf/10 border border-leaf/30 text-leaf text-[13px] font-bold flex items-center gap-2"
+            >
+              <CheckCircle2 className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
+              <span>{success} Redirecting to login...</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="current-pw" className="block text-xs font-bold text-ink mb-1">
-                Current Password
+              <label htmlFor="change-pass-id" className="block text-[13px] font-bold text-ink mb-1">
+                ID (Email or Username)
               </label>
               <input
-                id="current-pw"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-leaf/30 bg-white text-ink text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-leaf"
+                id="change-pass-id"
+                type="text"
+                autoComplete="username"
                 required
+                value={id}
+                onChange={(e) => setId(e.target.value)}
+                placeholder="name@tableflow.com or username"
+                className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-leaf/50"
               />
             </div>
 
-            <div>
-              <label htmlFor="new-pw" className="block text-xs font-bold text-ink mb-1">
-                New Password (min 12 characters)
-              </label>
-              <input
-                id="new-pw"
-                type="password"
-                minLength={12}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-leaf/30 bg-white text-ink text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-leaf"
-                required
-              />
-            </div>
+            <PasswordField
+              id="change-pass-current"
+              label="Current Password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Your current password"
+              autoComplete="current-password"
+              required
+            />
 
-            <div>
-              <label htmlFor="confirm-pw" className="block text-xs font-bold text-ink mb-1">
-                Confirm New Password
-              </label>
-              <input
-                id="confirm-pw"
-                type="password"
-                minLength={12}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-leaf/30 bg-white text-ink text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-leaf"
-                required
-              />
-            </div>
+            <PasswordField
+              id="change-pass-new"
+              label="New Password (min 8 characters)"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={72}
+              required
+            />
 
-            <Button
-              type="submit"
-              disabled={loading || !currentPassword || newPassword.length < 12 || newPassword !== confirmPassword}
-              className="w-full bg-leaf text-white font-extrabold hover:bg-leaf-mid transition-colors py-2.5 mt-2"
-            >
-              {loading ? 'Updating Password...' : 'Update Password'}
-            </Button>
+            <PasswordField
+              id="change-pass-confirm"
+              label="Confirm New Password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter new password"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={72}
+              required
+            />
+
+            <div className="pt-2">
+              <Button
+                type="submit"
+                variant="leaf"
+                disabled={submitting}
+                className="w-full min-h-[46px] font-extrabold text-[15px]"
+              >
+                {submitting ? 'Updating Password...' : 'Update Password'}
+              </Button>
+            </div>
           </form>
-        </div>
-      </Card>
+
+          <div className="mt-6 text-center">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 text-[14px] font-bold text-leaf hover:underline min-h-[44px] py-2"
+            >
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+              <span>Back to Login</span>
+            </Link>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

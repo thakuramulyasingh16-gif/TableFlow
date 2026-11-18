@@ -15,13 +15,11 @@ export default async function KitchenLayout({ children }: { children: React.Reac
   const user = session?.user as
     | {
         role?: string;
-        mfaSetupRequired?: boolean;
         mustChangePassword?: boolean;
       }
     | undefined;
 
   const access = checkDashboardAccess('/kitchen', user?.role, {
-    mfaSetupRequired: user?.mfaSetupRequired,
     mustChangePassword: user?.mustChangePassword,
   });
 

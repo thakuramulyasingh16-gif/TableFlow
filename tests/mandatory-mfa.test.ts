@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { checkDashboardAccess } from '../src/lib/dashboard-guard';
-import { AppError } from '../src/lib/api-error';
 import { requireStaffAuth, setSessionResolver, resetSessionResolver } from '../src/lib/auth-guard';
 import { prisma } from '../src/lib/prisma';
 
@@ -14,28 +13,24 @@ Object.assign(process.env, {
   GUEST_COOKIE_SECRET: 'dummy-guest'.padEnd(48, 'b'),
 });
 
-test('Mandatory MFA: checkDashboardAccess redirects restricted session to /mfa-setup', () => {
-  // Owner with mfaSetupRequired
-  const ownerCheck = checkDashboardAccess('/admin', 'owner', { mfaSetupRequired: true });
-  assert.equal(ownerCheck.allowed, false);
-  assert.equal(ownerCheck.redirectUrl, '/mfa-setup');
+test('Optional MFA: checkDashboardAccess allows owner and manager without mandatory MFA redirect', () => {
+  // Owner without MFA is allowed to access /admin
+  const ownerCheck = checkDashboardAccess('/admin', 'owner');
+  assert.equal(ownerCheck.allowed, true);
+  assert.equal(ownerCheck.redirectUrl, '');
 
-  // Manager with mfaSetupRequired
-  const managerCheck = checkDashboardAccess('/admin/staff', 'manager', { mfaSetupRequired: true });
-  assert.equal(managerCheck.allowed, false);
-  assert.equal(managerCheck.redirectUrl, '/mfa-setup');
+  // Manager without MFA is allowed to access /admin
+  const managerCheck = checkDashboardAccess('/admin', 'manager');
+  assert.equal(managerCheck.allowed, true);
+  assert.equal(managerCheck.redirectUrl, '');
 
-  // Any other dashboard path redirected to /mfa-setup
-  assert.equal(checkDashboardAccess('/kitchen', 'owner', { mfaSetupRequired: true }).redirectUrl, '/mfa-setup');
-  assert.equal(checkDashboardAccess('/staff', 'manager', { mfaSetupRequired: true }).redirectUrl, '/mfa-setup');
-
-  // Allowed on /mfa-setup itself
-  const mfaSetupCheck = checkDashboardAccess('/mfa-setup', 'owner', { mfaSetupRequired: true });
-  assert.equal(mfaSetupCheck.allowed, true);
-  assert.equal(mfaSetupCheck.redirectUrl, '');
+  // Waiter is allowed to access /staff
+  const waiterCheck = checkDashboardAccess('/staff', 'waiter');
+  assert.equal(waiterCheck.allowed, true);
+  assert.equal(waiterCheck.redirectUrl, '');
 });
 
-test('Mandatory MFA: requireStaffAuth blocks privileged user without MFA enrolled unless allowMfaSetup is true', async () => {
+test('Optional MFA: requireStaffAuth allows privileged user without MFA enrolled', async () => {
   const originalFindUnique = prisma.user.findUnique;
 
   try {
@@ -43,7 +38,6 @@ test('Mandatory MFA: requireStaffAuth blocks privileged user without MFA enrolle
       user: {
         id: '101',
         role: 'owner',
-        mfaSetupRequired: true,
         tokenVersion: 1,
       },
     }));
@@ -59,19 +53,8 @@ test('Mandatory MFA: requireStaffAuth blocks privileged user without MFA enrolle
       role: { name: 'owner' },
     });
 
-    // Standard staff API without allowMfaSetup -> 403 MFA_SETUP_REQUIRED
-    await assert.rejects(
-      () => requireStaffAuth(['owner', 'manager']),
-      (err: unknown) => {
-        assert.ok(err instanceof AppError);
-        assert.equal(err.statusCode, 403);
-        assert.equal(err.code, 'MFA_SETUP_REQUIRED');
-        return true;
-      }
-    );
-
-    // Endpoint with allowMfaSetup: true -> successfully authenticated
-    const actor = await requireStaffAuth(['owner', 'manager'], { allowMfaSetup: true });
+    // Standard staff API without MFA enrolled succeeds (MFA is optional)
+    const actor = await requireStaffAuth(['owner', 'manager']);
     assert.equal(actor.id, 101);
     assert.equal(actor.role, 'owner');
   } finally {
@@ -80,7 +63,7 @@ test('Mandatory MFA: requireStaffAuth blocks privileged user without MFA enrolle
   }
 });
 
-test('Mandatory MFA: chef and waiter without MFA are NOT required to enroll in MFA', async () => {
+test('Optional MFA: chef and waiter without MFA access their roles normally', async () => {
   const originalFindUnique = prisma.user.findUnique;
 
   try {
@@ -88,7 +71,6 @@ test('Mandatory MFA: chef and waiter without MFA are NOT required to enroll in M
       user: {
         id: '102',
         role: 'waiter',
-        mfaSetupRequired: false,
         tokenVersion: 1,
       },
     }));
@@ -104,7 +86,6 @@ test('Mandatory MFA: chef and waiter without MFA are NOT required to enroll in M
       role: { name: 'waiter' },
     });
 
-    // Waiter can access floor routes without MFA setup
     const actor = await requireStaffAuth(['waiter', 'owner']);
     assert.equal(actor.id, 102);
     assert.equal(actor.role, 'waiter');

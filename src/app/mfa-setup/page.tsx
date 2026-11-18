@@ -72,7 +72,7 @@ export default function MfaSetupPage() {
       });
 
       setSuccess('Two-factor authentication verified successfully! Redirecting...');
-      await update({ mfaSetupRequired: false });
+      await update({});
 
       setTimeout(() => {
         const role = (session?.user as { role?: string } | undefined)?.role;

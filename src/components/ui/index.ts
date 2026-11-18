@@ -7,4 +7,5 @@ export { TimerChip, getTimerState } from './TimerChip';
 export { Toast } from './Toast';
 export { Modal } from './Modal';
 export { Skeleton } from './Skeleton';
+export { PasswordField } from './PasswordField';
 
