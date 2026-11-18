@@ -6,6 +6,7 @@ import { requireCsrf } from '@/lib/csrf';
 import { assertValidPassword, DUMMY_HASH } from '@/lib/password-policy';
 import { prisma } from '@/lib/prisma';
 import { enforceRateLimit, getClientIp } from '@/lib/rate-limit';
+import { consumeRecoveryCode, decryptMfaSecret, verifyTotpWithReplay } from '@/lib/totp';
 import { parseJsonBody, publicChangePasswordSchema } from '@/lib/validators';
 
 export async function POST(req: NextRequest) {
@@ -68,6 +69,77 @@ export async function POST(req: NextRequest) {
       throw new AppError(400, 'Invalid ID or password.', 'INVALID_CREDENTIALS');
     }
 
+    let acceptedMfaTimeStep: number | null = null;
+    let updatedRecoveryCodes: string | null = null;
+
+    if (user.mfaEnabled && user.mfaSecret) {
+      const code = body.totpCode?.trim();
+      if (!code) {
+        await recordAuditLog({
+          actorUserId: user.id,
+          actorRole: user.role?.name || 'unknown',
+          action: 'PASSWORD_CHANGE_MFA_REQUIRED',
+          entityType: 'user',
+          entityId: user.id,
+          ipAddress: ip,
+          metadata: { via: 'public_change_password' },
+        });
+        throw new AppError(403, 'Two-factor authentication code required.', 'MFA_REQUIRED');
+      }
+
+      // Enforce separate per-user and per-IP rate limits on TOTP / recovery attempts
+      try {
+        await enforceRateLimit('mfa_verify_ip', ip);
+        await enforceRateLimit('mfa_verify_user', String(user.id));
+      } catch {
+        await recordAuditLog({
+          actorUserId: user.id,
+          actorRole: user.role?.name || 'unknown',
+          action: 'PASSWORD_CHANGE_MFA_RATE_LIMITED',
+          entityType: 'user',
+          entityId: user.id,
+          ipAddress: ip,
+          metadata: { via: 'public_change_password' },
+        });
+        throw new AppError(400, 'Invalid ID or password.', 'INVALID_CREDENTIALS');
+      }
+
+      const plainSecret = decryptMfaSecret(user.mfaSecret);
+      const verifyResult = verifyTotpWithReplay(code, plainSecret, user.mfaLastTimeStep);
+      let mfaOk = verifyResult.valid;
+      acceptedMfaTimeStep = verifyResult.timeStep ?? null;
+
+      if (!mfaOk && user.mfaRecoveryCodes) {
+        const remaining = consumeRecoveryCode(code, user.mfaRecoveryCodes);
+        if (remaining) {
+          mfaOk = true;
+          updatedRecoveryCodes = JSON.stringify(remaining);
+          await recordAuditLog({
+            actorUserId: user.id,
+            actorRole: user.role?.name || 'unknown',
+            action: 'PASSWORD_CHANGE_MFA_RECOVERY_CODE_USED',
+            entityType: 'user',
+            entityId: user.id,
+            ipAddress: ip,
+            metadata: { via: 'public_change_password' },
+          });
+        }
+      }
+
+      if (!mfaOk) {
+        await recordAuditLog({
+          actorUserId: user.id,
+          actorRole: user.role?.name || 'unknown',
+          action: 'PASSWORD_CHANGE_MFA_FAILED',
+          entityType: 'user',
+          entityId: user.id,
+          ipAddress: ip,
+          metadata: { via: 'public_change_password' },
+        });
+        throw new AppError(400, 'Invalid ID or password.', 'INVALID_CREDENTIALS');
+      }
+    }
+
     const samePassword = await bcrypt.compare(body.newPassword, user.passwordHash);
     if (samePassword) {
       throw new AppError(400, 'New password cannot be the same as your current password.', 'PASSWORD_REUSE');
@@ -90,6 +162,8 @@ export async function POST(req: NextRequest) {
         tokenVersion: { increment: 1 },
         failedLoginAttempts: 0,
         lockedUntil: null,
+        ...(acceptedMfaTimeStep !== null ? { mfaLastTimeStep: acceptedMfaTimeStep } : {}),
+        ...(updatedRecoveryCodes !== null ? { mfaRecoveryCodes: updatedRecoveryCodes } : {}),
       },
     });
 

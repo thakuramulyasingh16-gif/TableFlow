@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, KeyRound } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, KeyRound, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { Button, Card, PasswordField } from '@/components/ui';
 
@@ -13,6 +13,8 @@ export default function ChangePasswordPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -32,6 +34,11 @@ export default function ChangePasswordPage() {
       return;
     }
 
+    if (mfaRequired && !totpCode.trim()) {
+      setError('Please enter your authenticator code.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await apiFetch<{ success: boolean; message: string }>('/api/auth/change-password', {
@@ -40,6 +47,7 @@ export default function ChangePasswordPage() {
           id: id.trim(),
           currentPassword,
           newPassword,
+          ...(totpCode.trim() ? { totpCode: totpCode.trim() } : {}),
         },
       });
 
@@ -47,8 +55,14 @@ export default function ChangePasswordPage() {
       setTimeout(() => {
         router.push('/login');
       }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to change password. Please try again.');
+    } catch (err: unknown) {
+      const apiErr = err as { code?: string; message?: string };
+      if (apiErr.code === 'MFA_REQUIRED') {
+        setMfaRequired(true);
+        setError('');
+      } else {
+        setError(apiErr.message || 'Unable to change password. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -84,6 +98,13 @@ export default function ChangePasswordPage() {
             >
               <CheckCircle2 className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
               <span>{success} Redirecting to login...</span>
+            </div>
+          )}
+
+          {mfaRequired && !success && (
+            <div className="mb-5 p-3.5 rounded-xl bg-mint-bg border border-leaf/30 text-leaf text-[13px] font-bold flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
+              <span>Two-factor authentication required for this account. Enter your code below.</span>
             </div>
           )}
 
@@ -138,6 +159,26 @@ export default function ChangePasswordPage() {
               required
             />
 
+            {mfaRequired && (
+              <div>
+                <label htmlFor="change-pass-totp" className="block text-[13px] font-bold text-ink mb-1">
+                  Authenticator Code
+                </label>
+                <input
+                  id="change-pass-totp"
+                  name="totpCode"
+                  type="text"
+                  required
+                  autoFocus
+                  autoComplete="one-time-code"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value)}
+                  placeholder="6-digit code or recovery code"
+                  className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-leaf/50"
+                />
+              </div>
+            )}
+
             <div className="pt-2">
               <Button
                 type="submit"
@@ -145,7 +186,11 @@ export default function ChangePasswordPage() {
                 disabled={submitting}
                 className="w-full min-h-[46px] font-extrabold text-[15px]"
               >
-                {submitting ? 'Updating Password...' : 'Update Password'}
+                {submitting
+                  ? 'Updating Password...'
+                  : mfaRequired
+                    ? 'Verify MFA & Update Password'
+                    : 'Update Password'}
               </Button>
             </div>
           </form>
