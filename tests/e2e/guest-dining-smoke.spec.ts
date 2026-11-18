@@ -48,7 +48,7 @@ test.describe('TableFlow Guest Dining E2E Smoke Flow', () => {
 
   test('Staff Login and Dashboard role boundary checks', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.locator('input[type="email"], input[name="email"]')).toBeVisible();
+    await expect(page.locator('input#login-id, input[name="id"], input[type="email"]')).toBeVisible();
     await expect(page.locator('input[type="password"], input[name="password"]')).toBeVisible();
 
     // Verify unauthorized direct access to /admin redirects to login
