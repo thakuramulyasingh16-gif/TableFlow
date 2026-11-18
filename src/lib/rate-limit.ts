@@ -9,19 +9,25 @@ type LimiterBucket =
   | 'login'
   | 'login_ip'
   | 'login_email'
+  | 'change_password_ip'
+  | 'change_password_id'
   | 'order'
   | 'waiter_call'
   | 'payment'
   | 'stock_toggle'
   | 'purchase'
   | 'table_pin'
-  | 'health';
+  | 'health'
+  | 'mfa_verify_user'
+  | 'mfa_verify_ip';
 
 const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: `${number} s` | `${number} m` }> = {
   global: { max: 300, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login: { max: 10, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login_ip: { max: 20, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   login_email: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  change_password_ip: { max: 15, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  change_password_id: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
   order: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   waiter_call: { max: 6, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   payment: { max: 20, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
@@ -29,6 +35,8 @@ const LIMITS: Record<LimiterBucket, { max: number; windowMs: number; windowStr: 
   purchase: { max: 30, windowMs: 5 * 60 * 1000, windowStr: '5 m' },
   table_pin: { max: 5, windowMs: 10 * 60 * 1000, windowStr: '10 m' },
   health: { max: 60, windowMs: 1 * 60 * 1000, windowStr: '1 m' },
+  mfa_verify_user: { max: 5, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
+  mfa_verify_ip: { max: 20, windowMs: 15 * 60 * 1000, windowStr: '15 m' },
 };
 
 const memoryWindows = new Map<string, number[]>();

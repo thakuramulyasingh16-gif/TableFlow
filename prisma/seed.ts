@@ -1,11 +1,15 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient, RoleName, SpiceLevel, StationCode } from '@prisma/client';
+import { assertSeedAllowed, generateStrongPassword } from './seed-guard';
 
 const prisma = new PrismaClient();
 const BCRYPT_COST = 12;
 
 async function main() {
+  // Safety guard: refuse to run seed in production without explicit opt-in
+  assertSeedAllowed(process.env);
+
   // 1. Roles
   const roleDefs: { name: RoleName; description: string }[] = [
     { name: 'owner', description: 'Restaurant owner and full administrator' },
@@ -24,30 +28,42 @@ async function main() {
     roleMap[r.name] = role.id;
   }
 
-  // 2. Demo Staff Accounts (strong random passwords printed ONCE)
-  const staffDefs: { name: string; email: string; role: RoleName }[] = [
-    { name: 'Aarav Sharma (Owner)', email: 'owner@tableflow.local', role: 'owner' },
-    { name: 'Meera Nair (Manager)', email: 'manager@tableflow.local', role: 'manager' },
-    { name: 'Rohan Verma (Waiter)', email: 'waiter@tableflow.local', role: 'waiter' },
-    { name: 'Kabir Patel (Chef)', email: 'chef@tableflow.local', role: 'chef' },
+  // 2. Demo Staff Accounts (strong random passwords printed ONCE, usernames set)
+  const staffDefs: { name: string; email: string; username: string; role: RoleName }[] = [
+    { name: 'Aarav Sharma (Owner)', email: 'owner@tableflow.local', username: 'owner', role: 'owner' },
+    { name: 'Meera Nair (Manager)', email: 'manager@tableflow.local', username: 'manager', role: 'manager' },
+    { name: 'Rohan Verma (Waiter)', email: 'waiter@tableflow.local', username: 'waiter', role: 'waiter' },
+    { name: 'Kabir Patel (Chef)', email: 'chef@tableflow.local', username: 'chef', role: 'chef' },
   ];
 
-  const createdCredentials: { role: string; email: string; password: string }[] = [];
+  const createdCredentials: { role: string; email: string; username: string; password: string }[] = [];
+  const skippedUsers: { role: string; email: string; username: string }[] = [];
   for (const s of staffDefs) {
     const existing = await prisma.user.findUnique({ where: { email: s.email } });
     if (!existing) {
-      const plainPassword = `Tf!${crypto.randomBytes(9).toString('base64url')}`;
+      const plainPassword = generateStrongPassword();
       const passwordHash = await bcrypt.hash(plainPassword, BCRYPT_COST);
       await prisma.user.create({
         data: {
           name: s.name,
           email: s.email,
+          username: s.username,
           passwordHash,
           roleId: roleMap[s.role],
           isActive: true,
+          mustChangePassword: true,
         },
       });
-      createdCredentials.push({ role: s.role, email: s.email, password: plainPassword });
+      createdCredentials.push({ role: s.role, email: s.email, username: s.username, password: plainPassword });
+    } else {
+      // Ensure existing users get their designated username
+      if (!existing.username) {
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: { username: s.username },
+        });
+      }
+      skippedUsers.push({ role: s.role, email: s.email, username: s.username });
     }
   }
 
@@ -560,12 +576,27 @@ async function main() {
 
   console.log('\n=== TableFlow Postgres Seed Completed ===');
   if (createdCredentials.length > 0) {
-    console.log('\nGenerated Staff Credentials (printed ONCE — save securely):');
+    console.log('\n======================================================================');
+    console.log('  GENERATED STAFF CREDENTIALS (printed ONCE at seed time — save now): ');
+    console.log('======================================================================');
     for (const c of createdCredentials) {
-      console.log(`  [${c.role.toUpperCase()}] ${c.email}  |  password: ${c.password}`);
+      console.log(`  - [${c.role.toUpperCase()}] ID: ${c.username} (${c.email})`);
+      console.log(`    Temporary Password: ${c.password}`);
+      console.log(`    (mustChangePassword=true is enforced upon first login)`);
     }
-  } else {
-    console.log('Staff accounts already exist (passwords preserved).');
+    console.log('======================================================================\n');
+  }
+
+  if (skippedUsers.length > 0) {
+    console.log('\n======================================================================');
+    console.log('  ⚠️  NOTICE: Existing staff accounts detected — passwords NOT changed:');
+    console.log('======================================================================');
+    for (const u of skippedUsers) {
+      console.log(`  - [${u.role.toUpperCase()}] ID: ${u.username} (${u.email}) -> password skipped (preserved).`);
+    }
+    console.log('\n  To regenerate random passwords for existing demo accounts, run:');
+    console.log('    npm run db:reset-demo-passwords');
+    console.log('======================================================================\n');
   }
   if (firstTable) {
     console.log(`\nSample Table T1 URL: /t/${firstTable.qrToken}`);

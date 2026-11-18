@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
 import { withStaffAuth } from '@/lib/auth-guard';
+import { assertValidPassword } from '@/lib/password-policy';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/rate-limit';
 import { parseJsonBody } from '@/lib/validators';
@@ -11,7 +12,10 @@ import { parseJsonBody } from '@/lib/validators';
 const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: z.string().min(12, 'New password must be at least 12 characters'),
+    newPassword: z
+      .string()
+      .min(8, 'New password must be at least 8 characters')
+      .max(72, 'New password cannot exceed 72 characters'),
   })
   .strict();
 
@@ -44,6 +48,14 @@ export const POST = withStaffAuth(
       throw new AppError(400, 'New password cannot be the same as your current password.', 'PASSWORD_REUSE');
     }
 
+    // Enforce password policy
+    assertValidPassword(body.newPassword, {
+      email: user.email,
+      username: user.username,
+      id: user.id,
+      name: user.name,
+    });
+
     const newHashed = await bcrypt.hash(body.newPassword, 12);
 
     await prisma.user.update({
@@ -65,5 +77,6 @@ export const POST = withStaffAuth(
     });
 
     return NextResponse.json({ success: true, message: 'Password updated successfully.' });
-  }
+  },
+  { allowChangePassword: true }
 );

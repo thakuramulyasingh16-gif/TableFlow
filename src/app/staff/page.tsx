@@ -10,6 +10,7 @@ import {
   Check,
   CheckCircle2,
   CreditCard,
+  KeyRound,
   LogOut,
   RefreshCw,
   Sparkles,
@@ -21,6 +22,7 @@ import { apiFetch } from '@/lib/api-client';
 import { formatInr } from '@/lib/format';
 import { subscribeRealtime } from '@/lib/realtime-client';
 import { playChime } from '@/lib/sound';
+import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
 import { Badge, Button, Card, Modal, Skeleton, Toast } from '@/components/ui';
 
 interface FloorTable {
@@ -110,6 +112,7 @@ export default function StaffPage() {
   const [calls, setCalls] = useState<WaiterCall[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(() =>
     typeof window !== 'undefined' ? localStorage.getItem('tableflow_sound_enabled') === 'true' : false
   );
@@ -310,6 +313,11 @@ export default function StaffPage() {
   return (
     <div className="min-h-screen bg-cream">
       <Toast message={toast} />
+      <ChangePasswordModal
+        isOpen={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        onSuccess={() => setToast('Password updated successfully.')}
+      />
 
       <header className="bg-signature-gradient rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -359,6 +367,13 @@ export default function StaffPage() {
             >
               <RefreshCw className="w-4 h-4" />
             </button>
+            <Button
+              variant="leaf"
+              onClick={() => setShowChangePassword(true)}
+              className="min-h-[44px] px-3.5 bg-surface text-leaf font-bold text-[13px] border border-leaf/20 shadow-sm inline-flex items-center"
+            >
+              <KeyRound className="w-4 h-4 mr-1.5" aria-hidden="true" /> Password
+            </Button>
             <Button variant="leaf" onClick={() => signOut({ callbackUrl: '/login' })}>
               <LogOut className="w-4 h-4" aria-hidden="true" /> Sign Out
             </Button>

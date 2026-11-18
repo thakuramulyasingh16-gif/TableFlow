@@ -6,9 +6,13 @@ import { getEnv } from './env';
 
 export const CSRF_COOKIE_NAME = 'tf_csrf';
 
+export function isTokenFormatValid(token?: string | null): token is string {
+  return typeof token === 'string' && token.length >= 16 && /^[A-Za-z0-9_-]+$/.test(token);
+}
+
 export function setCsrfCookie(res: NextResponse, existingToken?: string): string {
   const env = getEnv();
-  const token = existingToken && existingToken.length >= 16 ? existingToken : generateOpaqueToken(24);
+  const token = isTokenFormatValid(existingToken) ? existingToken : generateOpaqueToken(24);
   res.cookies.set(CSRF_COOKIE_NAME, token, {
     httpOnly: false,
     secure: env.isProd,
@@ -59,6 +63,16 @@ export async function requireCsrf(req: NextRequest): Promise<void> {
   // 3. Double-submit cookie verification
   let cookieToken = req.cookies?.get(CSRF_COOKIE_NAME)?.value;
   if (!cookieToken) {
+    // Fallback: parse raw Cookie header in case NextRequest cookies map missed it
+    const rawCookieHeader = req.headers.get('cookie');
+    if (rawCookieHeader) {
+      const match = rawCookieHeader.split('; ').find((row) => row.startsWith(`${CSRF_COOKIE_NAME}=`));
+      if (match) {
+        cookieToken = decodeURIComponent(match.split('=')[1] || '').trim();
+      }
+    }
+  }
+  if (!cookieToken) {
     try {
       const cookieStore = await cookies();
       cookieToken = cookieStore.get(CSRF_COOKIE_NAME)?.value;
@@ -66,15 +80,14 @@ export async function requireCsrf(req: NextRequest): Promise<void> {
       // not in Next.js cookieStore context
     }
   }
+
   const headerToken = req.headers.get('x-csrf-token');
 
   if (
-    typeof cookieToken !== 'string' ||
-    typeof headerToken !== 'string' ||
-    cookieToken.length < 16 ||
+    !isTokenFormatValid(cookieToken) ||
+    !isTokenFormatValid(headerToken) ||
     !timingSafeEqualStr(cookieToken, headerToken)
   ) {
     throw new AppError(403, 'Invalid or missing CSRF token', 'CSRF_INVALID');
   }
 }
-

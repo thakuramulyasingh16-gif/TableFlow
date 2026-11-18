@@ -9,6 +9,7 @@ import {
 } from '../src/lib/realtime';
 import { calculatePollIntervalWithJitter, resolveClientChannel } from '../src/lib/realtime-client';
 import { GET as getStaffRealtimeChannel } from '../src/app/api/staff/realtime-channel/route';
+import { resetEnvCache } from '../src/lib/env';
 
 test('Realtime Privacy: per-session channels are unguessable and distinct', () => {
   const channel1 = getSessionRealtimeChannel(1);
@@ -124,4 +125,35 @@ test('Realtime Privacy: GET /api/staff/realtime-channel rejects unauthenticated 
 
   const res = await getStaffRealtimeChannel(req, { params: Promise.resolve({}) });
   assert.equal(res.status, 401, 'unauthenticated request must return 401 Unauthorized');
+});
+
+test('Realtime Privacy: REALTIME_CHANNEL_SECRET derives HMACs independently of GUEST_COOKIE_SECRET', () => {
+  const originalRealtimeSecret = process.env.REALTIME_CHANNEL_SECRET;
+  const originalGuestSecret = process.env.GUEST_COOKIE_SECRET;
+
+  try {
+    process.env.GUEST_COOKIE_SECRET = 'replace_with_test_guest_cookie_secret_val_1234'.padEnd(48, 'a');
+    process.env.REALTIME_CHANNEL_SECRET = 'replace_with_test_realtime_channel_secret_alpha_99'.padEnd(48, 'x');
+    resetEnvCache();
+    const chA = getSessionRealtimeChannel(10);
+
+    process.env.REALTIME_CHANNEL_SECRET = 'replace_with_test_realtime_channel_secret_bravo_88'.padEnd(48, 'y');
+    resetEnvCache();
+    const chB = getSessionRealtimeChannel(10);
+
+    // Different REALTIME_CHANNEL_SECRET yields different HMAC channel
+    assert.notEqual(chA, chB);
+    assert.ok(chA.startsWith('session_private_10_'));
+    assert.ok(chB.startsWith('session_private_10_'));
+
+    // Changing GUEST_COOKIE_SECRET has NO effect when REALTIME_CHANNEL_SECRET is present
+    process.env.GUEST_COOKIE_SECRET = 'replace_with_test_guest_cookie_secret_val_5678'.padEnd(48, 'z');
+    resetEnvCache();
+    const chB2 = getSessionRealtimeChannel(10);
+    assert.equal(chB, chB2);
+  } finally {
+    process.env.REALTIME_CHANNEL_SECRET = originalRealtimeSecret;
+    process.env.GUEST_COOKIE_SECRET = originalGuestSecret;
+    resetEnvCache();
+  }
 });

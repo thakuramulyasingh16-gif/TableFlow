@@ -2,29 +2,50 @@
 /**
  * TableFlow - Predev Preflight Check
  *
- * Runs automatically prior to `next dev` when calling `npm run dev`.
+ * Runs automatically prior to `dev` runner when calling `npm run dev`.
  * Verifies:
  * 1. .env exists and required variables validate against Zod schema
- * 2. Database server is reachable (auto-starts docker container if stopped)
- * 3. Database exists (auto-creates if missing)
- * 4. Migrations are up to date (auto-applies pending migrations)
- * 5. Port 3000 status (identifies process if occupied)
- * 6. Fetches sample table token and prints exact startup URLs
+ * 2. .env.local comparison: warns if DATABASE_URL/DIRECT_URL differ from .env
+ * 3. Database server is reachable (auto-starts docker container if stopped)
+ * 4. Database exists (auto-creates if missing)
+ * 5. Migrations are up to date (auto-applies pending migrations)
+ * 6. Port 3000 status on IPv4 & IPv6 + .next/dev lock detection:
+ *    - If TableFlow is already running, prints URL and exits 0
+ *    - If another process holds port 3000, warns with PID and exits 1 (never silently switches)
+ * 7. Fetches sample table token and prints exact startup URLs (never prints hardcoded credentials)
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import net from 'node:net';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import {
+  parseEnvFile,
+  parsePostgresUrl,
+  checkEnvLocalDiff,
+  isNextDevLocked,
+  detectPortListener,
+  testTcpPort,
+  isTableFlowServerRunning,
+} from './preflight-utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const envPath = path.join(rootDir, '.env');
+const sentinelPath = path.join(rootDir, '.next', 'already-running');
 const isWindows = process.platform === 'win32';
+
+// Ensure sentinel from any prior aborted run is cleared
+if (fs.existsSync(sentinelPath)) {
+  try {
+    fs.unlinkSync(sentinelPath);
+  } catch {
+    // ignore unlink error
+  }
+}
 
 console.log('\n[TableFlow Preflight] Running startup verification...\n');
 
@@ -32,28 +53,25 @@ console.log('\n[TableFlow Preflight] Running startup verification...\n');
 // 1. .env Verification with Zod
 // --------------------------------------------------------------------
 if (!fs.existsSync(envPath)) {
-  console.error('❌ ERROR: .env file is missing!');
-  console.error(`   Looked at: ${envPath}`);
-  console.error('   Please run "npm run setup" to create .env automatically, or copy .env.example to .env.\n');
-  process.exit(1);
+  if (process.env.CI) {
+    const examplePath = path.join(rootDir, '.env.example');
+    if (fs.existsSync(examplePath)) {
+      fs.copyFileSync(examplePath, envPath);
+    }
+  } else {
+    console.error('❌ ERROR: .env file is missing!');
+    console.error(`   Looked at: ${envPath}`);
+    console.error('   Please run "npm run setup" to create .env automatically, or copy .env.example to .env.\n');
+    process.exit(1);
+  }
 }
 
-const rawEnv = {};
-const envContent = fs.readFileSync(envPath, 'utf8');
-for (const line of envContent.split(/\r?\n/)) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith('#')) continue;
-  const eqIdx = trimmed.indexOf('=');
-  if (eqIdx > 0) {
-    const key = trimmed.slice(0, eqIdx).trim();
-    let val = trimmed.slice(eqIdx + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    rawEnv[key] = val;
-    if (!process.env[key]) {
-      process.env[key] = val;
-    }
+const rawEnv = parseEnvFile(envPath);
+
+// Inherit process environment variables (e.g. CI runners)
+for (const [k, v] of Object.entries(process.env)) {
+  if (v !== undefined) {
+    rawEnv[k] = v;
   }
 }
 
@@ -83,56 +101,24 @@ if (!parsedEnv.success) {
 console.log('✓ .env verified (all required variables present and valid)');
 
 // --------------------------------------------------------------------
-// 2. Database Reachability & Auto-start Docker
+// 2. .env.local Difference Check (Item 2)
 // --------------------------------------------------------------------
-function parsePostgresUrl(url) {
-  try {
-    const u = new URL(url);
-    return {
-      host: u.hostname || '127.0.0.1',
-      port: parseInt(u.port || '5432', 10),
-      database: u.pathname.replace(/^\//, '') || 'tableflow',
-      username: decodeURIComponent(u.username || 'postgres'),
-      password: decodeURIComponent(u.password || ''),
-    };
-  } catch {
-    return { host: '127.0.0.1', port: 5432, database: 'tableflow', username: 'postgres', password: '' };
+const envDiffs = checkEnvLocalDiff(rootDir, rawEnv);
+if (envDiffs.length > 0) {
+  console.warn('\n⚠️  WARNING: .env.local exists and its database configuration differs from .env:');
+  for (const d of envDiffs) {
+    console.warn(`   - ${d.key}:`);
+    console.warn(`       .env:       host="${d.envHost}:${d.envPort}", database="${d.envDatabase}"`);
+    console.warn(`       .env.local: host="${d.localHost}:${d.localPort}", database="${d.localDatabase}"`);
   }
+  console.warn('   Next.js loads .env.local with higher priority than .env.');
+  console.warn('   (Note: Passwords are omitted for security. Update .env.local if this difference is unintended.)\n');
 }
 
+// --------------------------------------------------------------------
+// 3. Database Reachability & Auto-start Docker
+// --------------------------------------------------------------------
 const dbInfo = parsePostgresUrl(rawEnv.DATABASE_URL);
-
-function testTcpPort(host, port, timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let resolved = false;
-
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => {
-      resolved = true;
-      socket.destroy();
-      resolve(true);
-    });
-
-    socket.once('timeout', () => {
-      if (!resolved) {
-        resolved = true;
-        socket.destroy();
-        resolve(false);
-      }
-    });
-
-    socket.once('error', () => {
-      if (!resolved) {
-        resolved = true;
-        socket.destroy();
-        resolve(false);
-      }
-    });
-
-    socket.connect(port, host);
-  });
-}
 
 async function ensureDbReachable() {
   let isPortOpen = await testTcpPort(dbInfo.host, dbInfo.port);
@@ -166,7 +152,7 @@ async function ensureDbReachable() {
 await ensureDbReachable();
 
 // --------------------------------------------------------------------
-// 3. Database Existence & Auto-Creation
+// 4. Database Existence & Auto-Creation
 // --------------------------------------------------------------------
 let prisma = new PrismaClient({ log: ['error'] });
 
@@ -188,7 +174,6 @@ async function ensureDatabaseExists() {
 
       try {
         await maintenancePrisma.$connect();
-        // Safe database identifier validation (letters, numbers, underscore only)
         if (!/^[a-zA-Z0-9_]+$/.test(dbInfo.database)) {
           throw new Error(`Unsafe database name: "${dbInfo.database}"`);
         }
@@ -215,11 +200,10 @@ await ensureDatabaseExists();
 console.log(`✓ Database "${dbInfo.database}" confirmed`);
 
 // --------------------------------------------------------------------
-// 4. Pending Migrations Check & Auto-Apply
+// 5. Pending Migrations Check & Auto-Apply
 // --------------------------------------------------------------------
 async function ensureMigrations() {
   try {
-    // Check if _prisma_migrations table exists and has rows
     const migrations = await prisma.$queryRaw`
       SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL
     `.catch(() => []);
@@ -248,55 +232,61 @@ async function ensureMigrations() {
 await ensureMigrations();
 
 // --------------------------------------------------------------------
-// 5. Port 3000 Check
+// 6. Reliable Port 3000 Check (IPv4 & IPv6 + .next/dev lock) (Item 1)
 // --------------------------------------------------------------------
-async function checkPort(port = 3000) {
-  const isTaken = !(await new Promise((resolve) => {
-    const s = net.createServer();
-    s.once('error', () => resolve(false));
-    s.once('listening', () => {
-      s.close(() => resolve(true));
-    });
-    s.listen(port, '127.0.0.1');
-  }));
+const portListener = detectPortListener(3000);
+const hasDevLock = isNextDevLocked(rootDir);
+const hasV4Connect = await testTcpPort('127.0.0.1', 3000, 500);
+const hasV6Connect = await testTcpPort('::1', 3000, 500);
 
-  if (isTaken) {
-    let procInfo = 'unknown';
+const portOccupied = portListener.isListening || hasDevLock || hasV4Connect || hasV6Connect;
+
+if (portOccupied) {
+  const isTableFlowRunning = hasDevLock || (await isTableFlowServerRunning(3000));
+
+  if (isTableFlowRunning) {
+    console.log('======================================================================');
+    console.log('  ℹ TableFlow development server is already running!');
+    console.log('======================================================================');
+    console.log('  Access URLs:');
+    console.log('    - Staff Sign In:            http://localhost:3000/login');
+    console.log('    - Kitchen Display Screen:   http://localhost:3000/kitchen');
+    console.log('    - Staff Live Floor Map:     http://localhost:3000/staff/floor');
+    console.log('    - Admin Management Panel:   http://localhost:3000/admin');
+    console.log('    - API Health Status:        http://localhost:3000/api/health');
+    console.log('======================================================================');
+    console.log('Exiting cleanly (0) to avoid starting a duplicate server instance.\n');
+
+    // Create sentinel so dev-runner exits cleanly without spawning Next.js
     try {
-      if (isWindows) {
-        const netstat = execSync(`netstat -ano -p tcp | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
-        const lines = netstat.trim().split(/\r?\n/);
-        if (lines.length > 0) {
-          const parts = lines[0].trim().split(/\s+/);
-          const pid = parts[parts.length - 1];
-          if (pid) {
-            const task = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf8' }).trim();
-            procInfo = `PID ${pid} (${task.split(',')[0].replace(/"/g, '')})`;
-          }
-        }
-      } else {
-        const lsof = execSync(`lsof -i :${port} -sTCP:LISTEN -t`, { encoding: 'utf8' }).trim();
-        procInfo = lsof ? `PID ${lsof}` : 'unknown';
-      }
+      fs.mkdirSync(path.dirname(sentinelPath), { recursive: true });
+      fs.writeFileSync(sentinelPath, 'already-running', 'utf8');
     } catch {
-      // ignore PID inspection errors
+      // ignore write error
     }
 
-    console.warn(`⚠️  NOTICE: Port ${port} is currently in use by process: ${procInfo}.`);
-    console.warn('   Next.js will automatically select the next available port (e.g. 3001) or attach to the active server.\n');
-    return port + 1;
-  }
+    await prisma.$disconnect().catch(() => {});
+    process.exit(0);
+  } else {
+    const procDesc = portListener.pid
+      ? `PID ${portListener.pid}${portListener.processName ? ` (${portListener.processName})` : ''}`
+      : 'unrecognized process';
 
-  console.log(`✓ Port ${port} is free and ready`);
-  return port;
+    console.error(`\n❌ ERROR: Port 3000 is occupied by another process: ${procDesc}.`);
+    console.error('   TableFlow requires port 3000 and will NEVER silently switch to another port.');
+    console.error(`   Please free port 3000 (e.g. "stop-tableflow.bat" or terminate ${procDesc}) and re-run.\n`);
+
+    await prisma.$disconnect().catch(() => {});
+    process.exit(1);
+  }
 }
 
-const activePort = await checkPort(3000);
+console.log('✓ Port 3000 is free and ready');
 
 // --------------------------------------------------------------------
-// 6. Fetch Sample Table & Print URLs
+// 7. Fetch Sample Table & Print URLs (No Hardcoded Credentials) (Item 3)
 // --------------------------------------------------------------------
-async function printStartupBanner(port) {
+async function printStartupBanner(port = 3000) {
   let sampleTableToken = 'tbl_demo_01_a9f4c8b2e107456d';
   let sampleTableNum = 1;
   try {
@@ -328,11 +318,9 @@ async function printStartupBanner(port) {
   console.log(`  🩺 API Health Status:         ${base}/api/health`);
   console.log('----------------------------------------------------------------------');
   console.log('  Staff Credentials:');
-  console.log('    - Owner:   owner@tableflow.local   | TableFlow@2026!Owner');
-  console.log('    - Manager: manager@tableflow.local | TableFlow@2026!Manager');
-  console.log('    - Waiter:  waiter@tableflow.local  | TableFlow@2026!Waiter');
-  console.log('    - Chef:    chef@tableflow.local    | TableFlow@2026!Chef');
+  console.log('    Generated randomly at seed time (prisma/seed.ts) and printed once.');
+  console.log('    All staff accounts require password change upon first login.');
   console.log('======================================================================\n');
 }
 
-await printStartupBanner(activePort === 3001 ? 3001 : 3000);
+await printStartupBanner(3000);

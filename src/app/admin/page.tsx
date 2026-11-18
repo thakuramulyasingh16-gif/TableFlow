@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   Bell,
   Download,
+  KeyRound,
   Layers,
   LogOut,
   PackageOpen,
@@ -29,6 +30,7 @@ import { AdminDishItem, MenuInventoryTab } from '@/components/admin/MenuInventor
 import { PurchasesTab } from '@/components/admin/PurchasesTab';
 import { ReportsTab } from '@/components/admin/ReportsTab';
 import { SettingsTab } from '@/components/admin/SettingsTab';
+import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
 import { Badge, Button, Card, Toast } from '@/components/ui';
 
 interface CatalogData {
@@ -59,6 +61,7 @@ interface StaffMember {
   id: number;
   name: string;
   email: string;
+  username?: string | null;
   isActive: boolean;
   role: { name: string };
 }
@@ -96,10 +99,12 @@ export default function AdminPage() {
     imageUrl: '',
   });
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const [newStaff, setNewStaff] = useState({
     name: '',
     email: '',
+    username: '',
     password: '',
     role: 'waiter',
   });
@@ -236,11 +241,20 @@ export default function AdminPage() {
   async function handleCreateStaff(e: React.FormEvent) {
     e.preventDefault();
     try {
+      const payload: Record<string, unknown> = {
+        name: newStaff.name,
+        email: newStaff.email,
+        password: newStaff.password,
+        role: newStaff.role,
+      };
+      if (newStaff.username.trim()) {
+        payload.username = newStaff.username.trim();
+      }
       await apiFetch('/api/admin/staff', {
         method: 'POST',
-        body: newStaff,
+        body: payload,
       });
-      setNewStaff({ name: '', email: '', password: '', role: 'waiter' });
+      setNewStaff({ name: '', email: '', username: '', password: '', role: 'waiter' });
       showToast('Staff member added.');
       await loadData();
     } catch (err) {
@@ -260,6 +274,11 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-cream font-sans pb-16">
       <Toast message={toast} />
+      <ChangePasswordModal
+        isOpen={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        onSuccess={() => showToast('Password updated successfully.')}
+      />
 
       {/* Signature Gradient Header */}
       <header className="bg-signature-gradient rounded-b-[28px] px-5 sm:px-8 py-5 shadow-card">
@@ -300,6 +319,13 @@ export default function AdminPage() {
             >
               Floor Map
             </Link>
+            <Button
+              variant="mint"
+              onClick={() => setShowChangePassword(true)}
+              className="min-h-[44px] px-3.5 bg-surface/80 hover:bg-surface text-leaf font-bold text-[13px] border border-leaf/20 inline-flex items-center"
+            >
+              <KeyRound className="w-4 h-4 mr-1.5" aria-hidden="true" /> Password
+            </Button>
             <Button variant="tomato" onClick={() => signOut({ callbackUrl: '/login' })} className="min-h-[44px]">
               <LogOut className="w-4 h-4 mr-1.5" aria-hidden="true" /> Sign Out
             </Button>
@@ -605,8 +631,8 @@ export default function AdminPage() {
         {tab === 'staff' && user?.role === 'owner' && (
           <div className="space-y-6">
             <Card className="p-5">
-              <form onSubmit={handleCreateStaff} className="grid sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-4 font-extrabold text-[17px] text-ink flex items-center gap-1.5">
+              <form onSubmit={handleCreateStaff} className="grid sm:grid-cols-5 gap-3">
+                <div className="sm:col-span-5 font-extrabold text-[17px] text-ink flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-leaf" aria-hidden="true" /> Create Staff Account
                 </div>
                 <div>
@@ -617,6 +643,16 @@ export default function AdminPage() {
                     placeholder="Full Name"
                     value={newStaff.name}
                     onChange={(e) => setNewStaff((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="staff-username" className="sr-only">Username</label>
+                  <input
+                    id="staff-username"
+                    placeholder="Username (optional)"
+                    value={newStaff.username}
+                    onChange={(e) => setNewStaff((p) => ({ ...p, username: e.target.value }))}
                     className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
                   />
                 </div>
@@ -638,8 +674,8 @@ export default function AdminPage() {
                     id="staff-pass"
                     required
                     type="password"
-                    minLength={10}
-                    placeholder="Password (min 10 chars)"
+                    minLength={8}
+                    placeholder="Password (min 8 chars)"
                     value={newStaff.password}
                     onChange={(e) => setNewStaff((p) => ({ ...p, password: e.target.value }))}
                     className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-leaf/20 text-ink text-[14px] font-bold"
@@ -670,6 +706,7 @@ export default function AdminPage() {
                 <thead className="bg-mint-bg border-b border-mint text-[12px] uppercase text-leaf font-extrabold">
                   <tr>
                     <th className="p-3.5">Name</th>
+                    <th className="p-3.5">Username</th>
                     <th className="p-3.5">Email</th>
                     <th className="p-3.5">Role</th>
                     <th className="p-3.5">Status</th>
@@ -679,6 +716,7 @@ export default function AdminPage() {
                   {staff.map((m) => (
                     <tr key={m.id}>
                       <td className="p-3.5 font-extrabold text-ink">{m.name}</td>
+                      <td className="p-3.5 text-muted">{m.username ? `@${m.username}` : '—'}</td>
                       <td className="p-3.5 text-muted">{m.email}</td>
                       <td className="p-3.5">
                         <Badge tone="sun">{m.role?.name}</Badge>

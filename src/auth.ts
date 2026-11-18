@@ -1,20 +1,25 @@
-import NextAuth from 'next-auth';
+import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { recordAuditLog } from './lib/audit';
 import { getEnv } from './lib/env';
+import { DUMMY_HASH } from './lib/password-policy';
 import { prisma } from './lib/prisma';
 import { enforceRateLimit } from './lib/rate-limit';
-import { consumeRecoveryCode, verifyTotp } from './lib/totp';
+import { consumeRecoveryCode, decryptMfaSecret, verifyTotpWithReplay } from './lib/totp';
+
+export class MfaRequiredError extends CredentialsSignin {
+  code = 'mfa_required';
+}
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MINUTES = 15;
-const DUMMY_HASH = '$2b$12$CwTycUXWue0Thq9StjUM0uJ8u1l4P3z9b/3dY8/3L0S1p2nF2qKXe';
 
 const credentialsSchema = z.object({
-  email: z.string().trim().email().max(190),
-  password: z.string().min(8).max(128),
+  id: z.string().trim().min(1).max(190).optional(),
+  email: z.string().trim().min(1).max(190).optional(),
+  password: z.string().min(1).max(128),
   totpCode: z.string().trim().max(32).optional(),
 });
 
@@ -33,7 +38,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Credentials({
       name: 'Staff Credentials',
       credentials: {
-        email: { label: 'Email', type: 'email' },
+        id: { label: 'ID', type: 'text' },
+        email: { label: 'Email', type: 'text' },
         password: { label: 'Password', type: 'password' },
         totpCode: { label: 'MFA Code', type: 'text' },
       },
@@ -42,21 +48,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = credentialsSchema.safeParse(rawCredentials);
         if (!parsed.success) return null;
 
-        const email = parsed.data.email.toLowerCase();
+        const rawId = (parsed.data.id || parsed.data.email || '').trim().toLowerCase();
+        if (!rawId) return null;
+
         const password = parsed.data.password;
 
-        // Separate rate limits per IP and per Email
+        // Separate rate limits per IP and per ID
         const forwarded = req?.headers?.get?.('x-forwarded-for') || '';
         const ip = forwarded.split(',')[0].trim() || '127.0.0.1';
         try {
           await enforceRateLimit('login_ip', ip);
-          await enforceRateLimit('login_email', email);
+          await enforceRateLimit('login_email', rawId);
         } catch {
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email },
+        const user = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { email: rawId },
+              { username: { equals: rawId, mode: 'insensitive' } },
+            ],
+          },
           include: { role: true },
         });
 
@@ -66,7 +79,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             action: 'LOGIN_FAILED',
             entityType: 'user',
             ipAddress: ip,
-            metadata: { email, reason: 'unknown_user' },
+            metadata: { id: rawId, reason: 'unknown_user' },
           });
           return null;
         }
@@ -120,7 +133,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
-        // TOTP MFA verification for MFA-enabled accounts or privileged roles
+        // TOTP MFA verification for MFA-enabled accounts
         if (user.mfaEnabled && user.mfaSecret) {
           const code = parsed.data.totpCode?.trim();
           if (!code) {
@@ -132,10 +145,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               entityId: user.id,
               ipAddress: ip,
             });
+            throw new MfaRequiredError();
+          }
+
+          // Enforce separate per-user and per-IP rate limits on TOTP / recovery attempts
+          try {
+            await enforceRateLimit('mfa_verify_ip', ip);
+            await enforceRateLimit('mfa_verify_user', String(user.id));
+          } catch {
+            await recordAuditLog({
+              actorUserId: user.id,
+              actorRole: user.role.name,
+              action: 'LOGIN_MFA_RATE_LIMITED',
+              entityType: 'user',
+              entityId: user.id,
+              ipAddress: ip,
+            });
             return null;
           }
 
-          let mfaOk = verifyTotp(code, user.mfaSecret);
+          const plainSecret = decryptMfaSecret(user.mfaSecret);
+          const verifyResult = verifyTotpWithReplay(code, plainSecret, user.mfaLastTimeStep);
+          let mfaOk = verifyResult.valid;
+          const acceptedTimeStep = verifyResult.timeStep ?? null;
+
           if (!mfaOk && user.mfaRecoveryCodes) {
             const remaining = consumeRecoveryCode(code, user.mfaRecoveryCodes);
             if (remaining) {
@@ -166,6 +199,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             });
             return null;
           }
+
+          // Update replay protection tracker on successful TOTP authentication
+          if (acceptedTimeStep !== null) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { mfaLastTimeStep: acceptedTimeStep },
+            });
+          }
         }
 
         await prisma.user.update({
@@ -186,6 +227,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: String(user.id),
           name: user.name,
           email: user.email,
+          username: user.username,
           role: user.role.name,
           tokenVersion: user.tokenVersion,
           mustChangePassword: user.mustChangePassword,
@@ -194,12 +236,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.userId = Number(user.id);
         token.role = (user as { role: string }).role;
+        token.username = (user as { username?: string | null }).username;
         token.tokenVersion = (user as { tokenVersion: number }).tokenVersion;
         token.mustChangePassword = (user as { mustChangePassword?: boolean }).mustChangePassword;
+      }
+      if (trigger === 'update' && session?.user) {
+        const updateData = session.user as { mustChangePassword?: boolean };
+        if (updateData.mustChangePassword !== undefined) {
+          token.mustChangePassword = updateData.mustChangePassword;
+        }
       }
       return token;
     },
@@ -207,6 +256,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = String(token.userId || '');
         (session.user as { role?: string }).role = token.role as string;
+        (session.user as { username?: string | null }).username = token.username as string | null | undefined;
         (session.user as { tokenVersion?: number }).tokenVersion = token.tokenVersion as number;
         (session.user as { mustChangePassword?: boolean }).mustChangePassword = token.mustChangePassword as boolean;
       }

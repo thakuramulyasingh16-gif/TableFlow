@@ -4,13 +4,17 @@ import { z } from 'zod';
 import { AppError } from '@/lib/api-error';
 import { recordAuditLog } from '@/lib/audit';
 import { withStaffAuth } from '@/lib/auth-guard';
+import { assertValidPassword } from '@/lib/password-policy';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/rate-limit';
 import { parseJsonBody } from '@/lib/validators';
 
 const resetStaffPasswordSchema = z
   .object({
-    newPassword: z.string().min(12, 'New password must be at least 12 characters'),
+    newPassword: z
+      .string()
+      .min(8, 'New password must be at least 8 characters')
+      .max(72, 'New password cannot exceed 72 characters'),
   })
   .strict();
 
@@ -28,6 +32,14 @@ export const POST = withStaffAuth<{ id: string }>(['owner'], async (req, { param
     include: { role: true },
   });
   if (!target) throw new AppError(404, 'Staff user not found.', 'USER_NOT_FOUND');
+
+  // Enforce password policy
+  assertValidPassword(body.newPassword, {
+    email: target.email,
+    username: target.username,
+    id: target.id,
+    name: target.name,
+  });
 
   const hashed = await bcrypt.hash(body.newPassword, 12);
 

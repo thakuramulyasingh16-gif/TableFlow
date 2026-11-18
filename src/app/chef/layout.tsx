@@ -12,8 +12,16 @@ export const metadata: Metadata = {
 
 export default async function ChefLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const access = checkDashboardAccess('/chef', role);
+  const user = session?.user as
+    | {
+        role?: string;
+        mustChangePassword?: boolean;
+      }
+    | undefined;
+
+  const access = checkDashboardAccess('/chef', user?.role, {
+    mustChangePassword: user?.mustChangePassword,
+  });
 
   if (!access.allowed) {
     redirect(access.redirectUrl);
