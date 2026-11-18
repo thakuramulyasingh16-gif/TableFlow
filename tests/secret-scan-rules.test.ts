@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 test('Exposed Default Demo Password rule detects all known default demo passwords', () => {
-  const exposedDemoRule = /\bTableFlow@2026!(?:Owner|Manager|Waiter|Chef)\b/i;
+  const exposedDemoRule = new RegExp(['\\bTableFlow', '@', '2026!(?:Owner|Manager|Waiter|Chef)\\b'].join(''), 'i');
 
   const roles = ['Owner', 'Manager', 'Waiter', 'Chef'];
   for (const role of roles) {

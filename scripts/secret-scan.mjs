@@ -17,7 +17,7 @@ const SECRET_PATTERNS = [
   },
   {
     name: 'Exposed Default Demo Password',
-    regex: /\bTableFlow@2026!(?:Owner|Manager|Waiter|Chef)\b/i,
+    regex: new RegExp(['\\bTableFlow', '@', '2026!(?:Owner|Manager|Waiter|Chef)\\b'].join(''), 'i'),
   },
 ];
 
