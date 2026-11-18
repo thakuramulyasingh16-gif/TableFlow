@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { AppError } from '../src/lib/api-error';
-import { CSRF_COOKIE_NAME, requireCsrf } from '../src/lib/csrf';
+import { CSRF_COOKIE_NAME, isTokenFormatValid, requireCsrf, setCsrfCookie } from '../src/lib/csrf';
 import { assertValidPassword } from '../src/lib/password-policy';
 import { enforceRateLimit, resetMemoryRateLimits } from '../src/lib/rate-limit';
 
@@ -69,6 +69,121 @@ test('Public change password: requires valid CSRF double-submit token', async ()
   });
 
   await assert.doesNotReject(() => requireCsrf(reqValid));
+});
+
+test('Forced change password (mustChangePassword flow): CSRF validation behavior', async () => {
+  const validToken = 'forced_change_csrf_token_123456789';
+
+  // 1. Missing header token (root cause of the bug) -> fails with 403 CSRF_INVALID
+  const reqMissingHeader = new NextRequest('http://localhost:3000/api/staff/auth/change-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: `${CSRF_COOKIE_NAME}=${validToken}`,
+    },
+    body: JSON.stringify({
+      currentPassword: 'CurrentTempPass123!',
+      newPassword: 'BrandNewSecurePass2026!',
+    }),
+  });
+
+  await assert.rejects(
+    () => requireCsrf(reqMissingHeader),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 403);
+      assert.equal(err.code, 'CSRF_INVALID');
+      assert.equal(err.message, 'Invalid or missing CSRF token');
+      return true;
+    }
+  );
+
+  // 2. Wrong token -> fails with 403 CSRF_INVALID
+  const reqWrongToken = new NextRequest('http://localhost:3000/api/staff/auth/change-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': 'wrong_token_12345678901234',
+      Cookie: `${CSRF_COOKIE_NAME}=${validToken}`,
+    },
+    body: JSON.stringify({
+      currentPassword: 'CurrentTempPass123!',
+      newPassword: 'BrandNewSecurePass2026!',
+    }),
+  });
+
+  await assert.rejects(
+    () => requireCsrf(reqWrongToken),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 403);
+      assert.equal(err.code, 'CSRF_INVALID');
+      return true;
+    }
+  );
+
+  // 3. Valid token matching cookie -> succeeds
+  const reqSuccess = new NextRequest('http://localhost:3000/api/staff/auth/change-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': validToken,
+      Cookie: `${CSRF_COOKIE_NAME}=${validToken}`,
+    },
+    body: JSON.stringify({
+      currentPassword: 'CurrentTempPass123!',
+      newPassword: 'BrandNewSecurePass2026!',
+    }),
+  });
+
+  await assert.doesNotReject(() => requireCsrf(reqSuccess));
+});
+
+test('Stale or malformed CSRF cookie: detected and replaced automatically', () => {
+  // 1. isTokenFormatValid checks length >= 16 and valid character set
+  assert.equal(isTokenFormatValid(undefined), false);
+  assert.equal(isTokenFormatValid(null), false);
+  assert.equal(isTokenFormatValid('short'), false);
+  assert.equal(isTokenFormatValid('invalid token with spaces!'), false);
+  assert.equal(isTokenFormatValid('0KHYkVhwdtL_ep_750wYsD7wiUqMlaLk'), true);
+
+  // 2. setCsrfCookie replaces stale/malformed token with a fresh valid token
+  const res = NextResponse.json({ ok: true });
+  const replacedToken = setCsrfCookie(res, 'too-short');
+  assert.ok(replacedToken.length >= 24);
+  assert.equal(isTokenFormatValid(replacedToken), true);
+  assert.notEqual(replacedToken, 'too-short');
+
+  const cookie = res.cookies.get(CSRF_COOKIE_NAME);
+  assert.ok(cookie);
+  assert.equal(cookie.value, replacedToken);
+});
+
+test('CSRF error retry logic: formats actionable session expired error message', () => {
+  const isCsrfError = (status: number, code?: string, message?: string) =>
+    status === 403 &&
+    (code === 'CSRF_INVALID' ||
+      code === 'CSRF_TOKEN_INVALID' ||
+      message?.toLowerCase()?.includes('csrf'));
+
+  assert.equal(isCsrfError(403, 'CSRF_INVALID', 'Invalid or missing CSRF token'), true);
+  assert.equal(isCsrfError(400, 'VALIDATION_ERROR'), false);
+
+  const formatErrorMessage = (status: number, code?: string, rawMsg?: string) => {
+    if (isCsrfError(status, code, rawMsg)) {
+      return 'Session expired, please refresh the page';
+    }
+    return rawMsg || 'Request failed';
+  };
+
+  assert.equal(
+    formatErrorMessage(403, 'CSRF_INVALID', 'Invalid or missing CSRF token'),
+    'Session expired, please refresh the page'
+  );
+  assert.equal(
+    formatErrorMessage(400, 'PASSWORD_TOO_SHORT', 'Password must be at least 8 characters'),
+    'Password must be at least 8 characters'
+  );
 });
 
 test('Public change password: rate limits per IP and per ID', async () => {

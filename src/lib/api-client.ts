@@ -5,21 +5,52 @@ let csrfCache: string | null = null;
 function readCookie(name: string): string | null {
   if (typeof document === 'undefined') return null;
   const match = document.cookie.split('; ').find((row) => row.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.split('=').slice(1).join('=')) : null;
+  if (!match) return null;
+  const val = decodeURIComponent(match.split('=').slice(1).join('=')).trim();
+  // Ensure token has valid minimum length and characters
+  if (val.length < 16 || !/^[A-Za-z0-9_-]+$/.test(val)) {
+    return null;
+  }
+  return val;
 }
 
-async function ensureCsrfToken(): Promise<string> {
-  const fromCookie = readCookie('tf_csrf');
-  if (fromCookie) {
-    csrfCache = fromCookie;
-    return fromCookie;
-  }
-  if (csrfCache) return csrfCache;
+export function clearCsrfCache(): void {
+  csrfCache = null;
+}
 
-  const res = await fetch('/api/csrf', { credentials: 'include' });
-  const data = (await res.json()) as { csrfToken?: string };
-  csrfCache = data.csrfToken || '';
-  return csrfCache;
+export async function ensureCsrfToken(forceFresh = false): Promise<string> {
+  if (!forceFresh) {
+    const fromCookie = readCookie('tf_csrf');
+    if (fromCookie) {
+      csrfCache = fromCookie;
+      return fromCookie;
+    }
+    if (csrfCache && csrfCache.length >= 16) {
+      return csrfCache;
+    }
+  }
+
+  // Clear cache and fetch fresh token from server (which sets/refreshes tf_csrf cookie)
+  csrfCache = null;
+  try {
+    const res = await fetch('/api/csrf?refresh=1', { credentials: 'include' });
+    const data = (await res.json()) as { csrfToken?: string };
+    if (data?.csrfToken && data.csrfToken.length >= 16) {
+      csrfCache = data.csrfToken;
+      return data.csrfToken;
+    }
+  } catch {
+    // network or endpoint error fallback
+  }
+
+  // Final check if cookie was set by response
+  const cookieNow = readCookie('tf_csrf');
+  if (cookieNow) {
+    csrfCache = cookieNow;
+    return cookieNow;
+  }
+
+  return csrfCache || '';
 }
 
 export async function apiFetch<T>(
@@ -28,10 +59,12 @@ export async function apiFetch<T>(
     method = 'GET',
     body = null,
     csrf = true,
+    _retry = 0,
   }: {
     method?: string;
     body?: unknown;
     csrf?: boolean;
+    _retry?: number;
   } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {};
@@ -40,7 +73,7 @@ export async function apiFetch<T>(
   }
   const isMutating = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
   if (isMutating && csrf) {
-    headers['X-CSRF-Token'] = await ensureCsrfToken();
+    headers['X-CSRF-Token'] = await ensureCsrfToken(_retry > 0);
   }
 
   const res = await fetch(path, {
@@ -52,7 +85,24 @@ export async function apiFetch<T>(
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data?.error?.message || 'Request failed') as Error & {
+    const isCsrfError =
+      res.status === 403 &&
+      (data?.error?.code === 'CSRF_INVALID' ||
+        data?.error?.code === 'CSRF_TOKEN_INVALID' ||
+        data?.error?.code === 'CSRF_MISSING' ||
+        data?.error?.message?.toLowerCase?.()?.includes('csrf'));
+
+    // Auto-retry once with a freshly re-issued CSRF token if the first attempt failed due to CSRF
+    if (isCsrfError && _retry === 0 && isMutating && csrf) {
+      clearCsrfCache();
+      return apiFetch<T>(path, { method, body, csrf, _retry: 1 });
+    }
+
+    const message = isCsrfError
+      ? 'Session expired, please refresh the page'
+      : data?.error?.message || 'Request failed';
+
+    const err = new Error(message) as Error & {
       status?: number;
       code?: string;
       details?: Record<string, unknown>;
@@ -64,4 +114,3 @@ export async function apiFetch<T>(
   }
   return data as T;
 }
-
