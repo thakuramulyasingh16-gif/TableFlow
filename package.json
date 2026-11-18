@@ -22,7 +22,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "secret-scan": "node scripts/secret-scan.mjs",
     "secret-scan:all": "node scripts/secret-scan.mjs --all",
-    "audit:high": "npm audit --audit-level=high"
+    "audit:high": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "@prisma/client": "6.12.0",
