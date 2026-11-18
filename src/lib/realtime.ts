@@ -4,12 +4,12 @@ import { getEnv } from './env';
 
 /**
  * Returns an unguessable per-session realtime channel.
- * Derived using HMAC-SHA256 with server-side GUEST_COOKIE_SECRET.
+ * Derived using HMAC-SHA256 with server-side REALTIME_CHANNEL_SECRET.
  * External users cannot guess or sniff other tables' channels.
  */
 export function getSessionRealtimeChannel(sessionId: number): string {
   const env = getEnv();
-  const secret = env.GUEST_COOKIE_SECRET || 'tf_realtime_secret_default';
+  const secret = env.REALTIME_CHANNEL_SECRET || env.GUEST_COOKIE_SECRET || 'tf_realtime_secret_default';
   const token = crypto
     .createHmac('sha256', secret)
     .update(`table_session:${sessionId}`)
@@ -24,7 +24,7 @@ export function getSessionRealtimeChannel(sessionId: number): string {
  */
 export function getRoleRealtimeChannel(role: 'staff' | 'kitchen' | 'inventory'): string {
   const env = getEnv();
-  const secret = env.GUEST_COOKIE_SECRET || 'tf_realtime_secret_default';
+  const secret = env.REALTIME_CHANNEL_SECRET || env.GUEST_COOKIE_SECRET || 'tf_realtime_secret_default';
   const token = crypto
     .createHmac('sha256', secret)
     .update(`staff_role:${role}`)

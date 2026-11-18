@@ -8,6 +8,17 @@ import { checkAllowedRole } from './rbac';
 
 export { checkAllowedRole };
 
+export type SessionResolver = () => Promise<unknown>;
+let sessionResolver: SessionResolver = () => auth();
+
+export function setSessionResolver(resolver: SessionResolver) {
+  sessionResolver = resolver;
+}
+
+export function resetSessionResolver() {
+  sessionResolver = () => auth();
+}
+
 export interface AuthenticatedStaff {
   id: number;
   name: string;
@@ -15,10 +26,15 @@ export interface AuthenticatedStaff {
   role: RoleName;
 }
 
-export type StaffRouteContext<P = Record<string, string | string[]>> = {
+export interface StaffRouteContext<P = Record<string, string | string[]>> {
   params: Promise<P>;
   actor: AuthenticatedStaff;
-};
+}
+
+export interface StaffAuthOptions {
+  allowMfaSetup?: boolean;
+  allowChangePassword?: boolean;
+}
 
 export type StaffRouteHandler<P = Record<string, string | string[]>> = (
   req: NextRequest,
@@ -28,7 +44,8 @@ export type StaffRouteHandler<P = Record<string, string | string[]>> = (
 // Reusable wrapper combining CSRF enforcement, staff authentication, and centralized error handling
 export function withStaffAuth<P = Record<string, string | string[]>>(
   allowedRoles: RoleName[],
-  handler: StaffRouteHandler<P>
+  handler: StaffRouteHandler<P>,
+  options?: StaffAuthOptions
 ) {
   return async (
     req: NextRequest,
@@ -36,7 +53,7 @@ export function withStaffAuth<P = Record<string, string | string[]>>(
   ): Promise<NextResponse | Response> => {
     try {
       await requireCsrf(req);
-      const actor = await requireStaffAuth(allowedRoles);
+      const actor = await requireStaffAuth(allowedRoles, options);
       const params = rawContext?.params ?? (Promise.resolve({} as P));
       return await handler(req, { params, actor });
     } catch (err) {
@@ -46,16 +63,33 @@ export function withStaffAuth<P = Record<string, string | string[]>>(
 }
 
 // Deny-by-default RBAC guard backed by live DB user status & tokenVersion check
-export async function requireStaffAuth(allowedRoles: RoleName[]): Promise<AuthenticatedStaff> {
-  let session;
+export async function requireStaffAuth(
+  allowedRoles: RoleName[],
+  options?: StaffAuthOptions
+): Promise<AuthenticatedStaff> {
+  let session: unknown;
   try {
-    session = await auth();
+    session = await sessionResolver();
   } catch {
     throw new AppError(401, 'Authentication required', 'AUTH_REQUIRED');
   }
 
-  const userIdStr = session?.user?.id;
-  const sessionTokenVersion = (session?.user as { tokenVersion?: number } | undefined)?.tokenVersion;
+  const sessionObj = session as
+    | {
+        user?: {
+          id?: string;
+          role?: string;
+          tokenVersion?: number;
+          mustChangePassword?: boolean;
+          mfaSetupRequired?: boolean;
+        };
+      }
+    | null
+    | undefined;
+
+  const userIdStr = sessionObj?.user?.id;
+  const sessionUser = sessionObj?.user;
+  const sessionTokenVersion = sessionUser?.tokenVersion;
 
   if (!userIdStr) {
     throw new AppError(401, 'Authentication required', 'AUTH_REQUIRED');
@@ -72,6 +106,29 @@ export async function requireStaffAuth(allowedRoles: RoleName[]): Promise<Authen
 
   if (sessionTokenVersion !== undefined && user.tokenVersion !== sessionTokenVersion) {
     throw new AppError(401, 'Session has been revoked', 'TOKEN_REVOKED');
+  }
+
+  const isPrivileged = user.role.name === 'owner' || user.role.name === 'manager';
+  const mfaEnrolled = user.mfaEnabled && Boolean(user.mfaSecret);
+  const mfaSetupRequired = sessionUser?.mfaSetupRequired || (isPrivileged && !mfaEnrolled);
+
+  // 1. Mandatory password change check
+  const mustChangePassword = sessionUser?.mustChangePassword || user.mustChangePassword;
+  if (mustChangePassword && !options?.allowChangePassword) {
+    throw new AppError(
+      403,
+      'Password change required before accessing staff operations',
+      'PASSWORD_CHANGE_REQUIRED'
+    );
+  }
+
+  // 2. Mandatory MFA enrollment for owner and manager
+  if (mfaSetupRequired && !options?.allowMfaSetup) {
+    throw new AppError(
+      403,
+      'MFA enrollment required for owner and manager accounts',
+      'MFA_SETUP_REQUIRED'
+    );
   }
 
   if (!checkAllowedRole(user.role.name, allowedRoles)) {

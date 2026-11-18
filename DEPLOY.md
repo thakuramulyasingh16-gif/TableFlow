@@ -44,6 +44,8 @@ In Vercel Project Settings -> **Environment Variables**, add:
 | `DIRECT_URL` | All | Direct Postgres URL for migrations |
 | `AUTH_SECRET` | All | 96-char random hex (`crypto.randomBytes(48).toString('hex')`) |
 | `GUEST_COOKIE_SECRET` | All | Distinct 96-char random hex |
+| `MFA_ENCRYPTION_KEY` | Production | 32-byte base64-encoded key (`crypto.randomBytes(32).toString('base64')`) |
+| `REALTIME_CHANNEL_SECRET` | Production | Min 32 chars random hex for realtime HMAC derivation |
 | `GUEST_SESSION_TTL_MINUTES` | All | `120` |
 | `CGST_BPS` | All | `250` (2.5%) |
 | `SGST_BPS` | All | `250` (2.5%) |
@@ -80,4 +82,39 @@ Save the randomly generated staff credentials printed once by `seed.ts`, and rot
 2. Vercel detects `vercel.json` (`npx prisma generate && npm run build`).
 3. Click **Deploy**.
 4. Verify `https://<your-domain>/api/health` returns `{"status":"ok"}`.
+
+---
+
+## 5. Supabase Realtime Authorization & RLS Private Channel Policies
+
+TableFlow uses cryptographically unguessable, HMAC-SHA256 derived private channel names (`session_private_<sessionId>_<token>` and `role_private_<role>_<token>`) derived server-side with `REALTIME_CHANNEL_SECRET`. Server-side events are broadcast exclusively using the trusted `SUPABASE_SERVICE_ROLE_KEY`.
+
+To enforce strict Row Level Security (RLS) on Supabase Realtime and block unauthorized client-side broadcasts, execute the following SQL in your Supabase SQL Editor:
+
+```sql
+-- 1. Enable RLS on the Realtime messages table
+ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+
+-- 2. Grant full broadcast permissions only to the service role (Next.js server-side)
+CREATE POLICY "service_role_all" ON realtime.messages
+FOR ALL TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- 3. Allow clients (anon / authenticated guests & staff) to listen only to permitted channels
+CREATE POLICY "clients_listen_only" ON realtime.messages
+FOR SELECT TO anon, authenticated
+USING (true);
+
+-- 4. Explicitly deny and block client-side publishing / message injection
+CREATE POLICY "block_client_publish" ON realtime.messages
+FOR INSERT TO anon, authenticated
+WITH CHECK (false);
+```
+
+### Verification Checklist
+- [ ] Clients cannot broadcast arbitrary messages via Supabase client.
+- [ ] Channel names cannot be guessed by sequential table or session IDs.
+- [ ] Broadcast payloads are sanitized server-side (no staff PII or email leakage).
+
 

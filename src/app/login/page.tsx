@@ -14,11 +14,6 @@ export default function LoginPage() {
   const [totpCode, setTotpCode] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   useEffect(() => {
     // Establish tf_csrf cookie at login/session start
@@ -46,11 +41,19 @@ export default function LoginPage() {
       await fetch('/api/csrf', { credentials: 'include' }).catch(() => {});
 
       const session = await getSession();
-      const user = session?.user as { role?: string; mustChangePassword?: boolean } | undefined;
+      const user = session?.user as {
+        role?: string;
+        mustChangePassword?: boolean;
+        mfaSetupRequired?: boolean;
+      } | undefined;
 
       if (user?.mustChangePassword) {
-        setCurrentPassword(password);
-        setMustChangePassword(true);
+        router.push('/change-password');
+        return;
+      }
+
+      if (user?.mfaSetupRequired) {
+        router.push('/mfa-setup');
         return;
       }
 
@@ -63,119 +66,6 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  async function handlePasswordChange(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setPasswordSuccess('');
-
-    if (newPassword.length < 12) {
-      setError('New password must be at least 12 characters.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/staff/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || 'Password change failed');
-      }
-
-      setPasswordSuccess('Password successfully updated! Redirecting...');
-      setTimeout(async () => {
-        const session = await getSession();
-        const role = (session?.user as { role?: string } | undefined)?.role;
-        if (role === 'chef') router.push('/kitchen');
-        else if (role === 'owner' || role === 'manager') router.push('/admin');
-        else router.push('/staff');
-      }, 1000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to change password');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (mustChangePassword) {
-    return (
-      <div className="min-h-screen bg-cream flex items-center justify-center p-5">
-        <Card className="w-full max-w-md overflow-hidden">
-          <div className="bg-signature-gradient p-6">
-            <h1 className="text-[22px] font-extrabold text-ink leading-tight">Change Password Required</h1>
-            <p className="text-[13px] font-medium text-muted mt-1">
-              Your account policy requires setting a new password (min 12 characters) before proceeding.
-            </p>
-          </div>
-
-          <div className="p-6 space-y-4">
-            {error && (
-              <div role="alert" className="p-3 rounded-[12px] bg-tomato/10 border border-tomato text-tomato text-[13px] font-bold">
-                {error}
-              </div>
-            )}
-            {passwordSuccess && (
-              <div role="status" className="p-3 rounded-[12px] bg-mint-bg border border-leaf text-leaf text-[13px] font-bold">
-                {passwordSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handlePasswordChange} className="space-y-4">
-              <div>
-                <label htmlFor="new-password" className="block text-[13px] font-bold text-ink mb-1">
-                  New Password (min 12 characters)
-                </label>
-                <input
-                  id="new-password"
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 12 characters"
-                  className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="confirm-password" className="block text-[13px] font-bold text-ink mb-1">
-                  Confirm New Password
-                </label>
-                <input
-                  id="confirm-password"
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat new password"
-                  className="w-full min-h-[44px] px-3.5 rounded-[12px] bg-cream border border-mint text-ink text-[14px]"
-                />
-              </div>
-
-              <Button type="submit" variant="leaf" fullWidth disabled={submitting}>
-                <Lock className="w-4 h-4" aria-hidden="true" />
-                {submitting ? 'Updating Password...' : 'Save New Password & Continue'}
-              </Button>
-            </form>
-          </div>
-        </Card>
-      </div>
-    );
   }
 
   return (

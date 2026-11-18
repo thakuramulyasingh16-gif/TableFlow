@@ -12,8 +12,18 @@ export const metadata: Metadata = {
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const access = checkDashboardAccess('/staff', role);
+  const user = session?.user as
+    | {
+        role?: string;
+        mfaSetupRequired?: boolean;
+        mustChangePassword?: boolean;
+      }
+    | undefined;
+
+  const access = checkDashboardAccess('/staff', user?.role, {
+    mfaSetupRequired: user?.mfaSetupRequired,
+    mustChangePassword: user?.mustChangePassword,
+  });
 
   if (!access.allowed) {
     redirect(access.redirectUrl);

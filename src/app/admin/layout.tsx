@@ -12,8 +12,18 @@ export const metadata: Metadata = {
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const access = checkDashboardAccess('/admin', role);
+  const user = session?.user as
+    | {
+        role?: string;
+        mfaSetupRequired?: boolean;
+        mustChangePassword?: boolean;
+      }
+    | undefined;
+
+  const access = checkDashboardAccess('/admin', user?.role, {
+    mfaSetupRequired: user?.mfaSetupRequired,
+    mustChangePassword: user?.mustChangePassword,
+  });
 
   if (!access.allowed) {
     redirect(access.redirectUrl);

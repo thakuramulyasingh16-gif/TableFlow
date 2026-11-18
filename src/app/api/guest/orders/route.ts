@@ -129,8 +129,16 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Abuse control: Atomic deal redemption validation
+      // Abuse control: Concurrency-safe pessimistic lock and atomic deal redemption validation
       if (deal) {
+        // Concurrency-safe pessimistic lock on the deal row
+        const lockedDeals = await tx.$queryRaw<Array<{ id: number; is_active: boolean }>>`
+          SELECT id, is_active FROM deals WHERE id = ${deal.id} FOR UPDATE
+        `;
+        if (!lockedDeals.length || !lockedDeals[0]?.is_active) {
+          throw new AppError(400, 'Selected deal is no longer active.', 'DEAL_INVALID');
+        }
+
         // 1. One-time code check
         if (deal.isOneTime) {
           const existingCount = await tx.order.count({

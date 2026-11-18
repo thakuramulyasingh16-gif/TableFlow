@@ -32,28 +32,44 @@ console.log('\n[TableFlow Preflight] Running startup verification...\n');
 // 1. .env Verification with Zod
 // --------------------------------------------------------------------
 if (!fs.existsSync(envPath)) {
-  console.error('❌ ERROR: .env file is missing!');
-  console.error(`   Looked at: ${envPath}`);
-  console.error('   Please run "npm run setup" to create .env automatically, or copy .env.example to .env.\n');
-  process.exit(1);
+  if (process.env.CI) {
+    const examplePath = path.join(rootDir, '.env.example');
+    if (fs.existsSync(examplePath)) {
+      fs.copyFileSync(examplePath, envPath);
+    }
+  } else {
+    console.error('❌ ERROR: .env file is missing!');
+    console.error(`   Looked at: ${envPath}`);
+    console.error('   Please run "npm run setup" to create .env automatically, or copy .env.example to .env.\n');
+    process.exit(1);
+  }
 }
 
 const rawEnv = {};
-const envContent = fs.readFileSync(envPath, 'utf8');
-for (const line of envContent.split(/\r?\n/)) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith('#')) continue;
-  const eqIdx = trimmed.indexOf('=');
-  if (eqIdx > 0) {
-    const key = trimmed.slice(0, eqIdx).trim();
-    let val = trimmed.slice(eqIdx + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  for (const line of envContent.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx > 0) {
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      rawEnv[key] = val;
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
     }
-    rawEnv[key] = val;
-    if (!process.env[key]) {
-      process.env[key] = val;
-    }
+  }
+}
+
+// Inherit process environment variables (e.g. GitHub Actions env)
+for (const [k, v] of Object.entries(process.env)) {
+  if (v !== undefined) {
+    rawEnv[k] = v;
   }
 }
 
