@@ -60,17 +60,22 @@ npm run db:check
 | **Live Floor Map** | `http://localhost:3000/staff/floor` | Waiter / Manager |
 | **Waiter Calls Board** | `http://localhost:3000/staff/waiter-calls` | Waiter / Manager |
 | **Admin & Manager Portal** | `http://localhost:3000/admin` | Owner / Manager |
-| **Staff Sign In** | `http://localhost:3000/login` | See table below |
+| **Staff Sign In** | `http://localhost:3000/login` | See staff accounts below |
 | **API Health Status** | `http://localhost:3000/api/health` | Public JSON healthcheck |
 
-### Default Staff Accounts (Seeded)
+### Staff Accounts (Seeded)
 
-| Role | Email | Password |
+Staff account credentials are generated cryptographically at seed time (`npx tsx prisma/seed.ts` or `npm run setup`) with strong random passwords (>= 16 characters) and printed **once** to the terminal.
+Each account has `mustChangePassword = true` enabled, requiring a new password to be configured on first login.
+
+| Role | Email | Role Description |
 | :--- | :--- | :--- |
-| **Owner** | `owner@tableflow.local` | `TableFlow@2026!Owner` |
-| **Manager** | `manager@tableflow.local` | `TableFlow@2026!Manager` |
-| **Waiter** | `waiter@tableflow.local` | `TableFlow@2026!Waiter` |
-| **Chef** | `chef@tableflow.local` | `TableFlow@2026!Chef` |
+| **Owner** | `owner@tableflow.local` | Full system administrator, staff management & restaurant settings (requires MFA) |
+| **Manager** | `manager@tableflow.local` | Floor supervisor, menu & table management, purchases (requires MFA) |
+| **Waiter** | `waiter@tableflow.local` | Table service, order confirmation, external payment recording |
+| **Chef** | `chef@tableflow.local` | Kitchen Display System (KDS) & live recipe stock management |
+
+> **Security Note**: Never commit staff credentials to version control. To generate credentials for a new installation, run `npm run setup`. Passwords can also be updated at any time from the Owner dashboard under `/admin`.
 
 ---
 

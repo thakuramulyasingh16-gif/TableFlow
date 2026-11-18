@@ -5,7 +5,22 @@ import { PrismaClient, RoleName, SpiceLevel, StationCode } from '@prisma/client'
 const prisma = new PrismaClient();
 const BCRYPT_COST = 12;
 
+function generateStrongPassword(): string {
+  // Generates 18 random bytes in base64url (~24 chars) with guaranteed character variety
+  // Total length: 28 characters (>= 16 chars required)
+  const entropy = crypto.randomBytes(18).toString('base64url');
+  return `Tf#${entropy}9!`;
+}
+
 async function main() {
+  // Safety guard: refuse to run seed in production without explicit opt-in
+  if (process.env.NODE_ENV === 'production' && process.env.SEED_ALLOW_PRODUCTION !== 'true') {
+    console.error('\n❌ ERROR: Refusing to run prisma/seed.ts in production environment.');
+    console.error('   Running the database seed in production risks overwriting existing schema data and injecting demo accounts.');
+    console.error('   If you genuinely intend to seed this production database, you must explicitly set SEED_ALLOW_PRODUCTION=true.\n');
+    process.exit(1);
+  }
+
   // 1. Roles
   const roleDefs: { name: RoleName; description: string }[] = [
     { name: 'owner', description: 'Restaurant owner and full administrator' },
@@ -36,7 +51,7 @@ async function main() {
   for (const s of staffDefs) {
     const existing = await prisma.user.findUnique({ where: { email: s.email } });
     if (!existing) {
-      const plainPassword = `Tf!${crypto.randomBytes(9).toString('base64url')}`;
+      const plainPassword = generateStrongPassword();
       const passwordHash = await bcrypt.hash(plainPassword, BCRYPT_COST);
       await prisma.user.create({
         data: {
@@ -45,6 +60,7 @@ async function main() {
           passwordHash,
           roleId: roleMap[s.role],
           isActive: true,
+          mustChangePassword: true,
         },
       });
       createdCredentials.push({ role: s.role, email: s.email, password: plainPassword });
@@ -560,12 +576,17 @@ async function main() {
 
   console.log('\n=== TableFlow Postgres Seed Completed ===');
   if (createdCredentials.length > 0) {
-    console.log('\nGenerated Staff Credentials (printed ONCE — save securely):');
+    console.log('\n======================================================================');
+    console.log('  GENERATED STAFF CREDENTIALS (printed ONCE at seed time — save now): ');
+    console.log('======================================================================');
     for (const c of createdCredentials) {
-      console.log(`  [${c.role.toUpperCase()}] ${c.email}  |  password: ${c.password}`);
+      console.log(`  - [${c.role.toUpperCase()}] ${c.email}`);
+      console.log(`    Temporary Password: ${c.password}`);
+      console.log(`    (mustChangePassword=true is enforced upon first login)`);
     }
+    console.log('======================================================================\n');
   } else {
-    console.log('Staff accounts already exist (passwords preserved).');
+    console.log('Staff accounts already exist in database (passwords preserved).');
   }
   if (firstTable) {
     console.log(`\nSample Table T1 URL: /t/${firstTable.qrToken}`);
